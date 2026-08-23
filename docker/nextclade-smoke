@@ -1,0 +1,209 @@
+#!/bin/sh
+set -eu
+
+mode="${1:-}"
+if [ "$#" -gt 0 ]; then
+  shift
+fi
+
+fail() {
+  echo "nextclade-smoke: $*" >&2
+  exit 1
+}
+
+expect_status() {
+  expected="$1"
+  shift
+  set +e
+  "$@" >/tmp/nextclade-smoke-command.out 2>&1
+  actual="$?"
+  set -e
+  [ "$actual" -eq "$expected" ] || {
+    cat /tmp/nextclade-smoke-command.out >&2
+    fail "expected status ${expected}, got ${actual}: $*"
+  }
+}
+
+case "$mode" in
+  identity)
+    command -v nextclade >/dev/null
+    command -v nextalign >/dev/null
+    command -v nextclade-web >/dev/null
+    command -v nginx >/dev/null
+    nextclade --version | grep -Fx 'nextclade 3.23.0' >/dev/null
+    nextalign --version | grep -Fx 'nextclade 3.23.0' >/dev/null
+    nextclade --help | grep -F 'Run sequence analysis' >/dev/null
+    nextclade-web --version | grep -F 'Nextclade Web 3.23.0' >/dev/null
+    nextclade-web --help | grep -F 'foreground browser service' >/dev/null
+    grep -F '"version": "3.23.0"' /usr/share/nextclade-web/app.json >/dev/null
+    grep -F '"commitHash": "629ea8fb0cfe3165db13ddc75dab16d3c2292dbd"' \
+      /usr/share/nextclade-web/app.json >/dev/null
+    grep -F 'web_artifact_id=9363881538' /usr/share/nextclade-taffish/cli-source.txt >/dev/null
+    test -s /usr/share/doc/nextclade-upstream/LICENSE
+    ;;
+  commands)
+    nextclade run --help | grep -F -- '--input-ref' >/dev/null
+    nextclade sort --help | grep -F 'dataset' >/dev/null
+    nextclade dataset --help | grep -F 'List and download' >/dev/null
+    nextclade dataset list --help | grep -F -- '--server' >/dev/null
+    nextclade dataset get --help | grep -F -- '--output-dir' >/dev/null
+    nextclade read-annotation --help | grep -F 'annotation' >/dev/null
+    nextclade schema write --help | grep -F 'JSON schema' >/dev/null
+    nextclade completions bash | grep -F '_nextclade' >/dev/null
+    nextclade help-markdown | grep -F '# Reference' >/dev/null
+    ;;
+  core)
+    work="$(mktemp -d /tmp/nextclade-core.XXXXXX)"
+    trap 'rm -rf "$work"' EXIT
+    cat > "$work/reference.fasta" <<'EOF'
+>reference
+ATGAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAA
+EOF
+    cat > "$work/query.fasta" <<'EOF'
+>query-one
+ATGAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAA
+EOF
+    nextclade run \
+      --input-ref "$work/reference.fasta" \
+      --output-tsv "$work/results.tsv" \
+      "$work/query.fasta"
+    test -s "$work/results.tsv"
+    grep -F 'query-one' "$work/results.tsv" >/dev/null
+    nextclade schema write --for output-json --output "$work/output.schema.json"
+    test -s "$work/output.schema.json"
+    grep -F '"$schema"' "$work/output.schema.json" >/dev/null
+    ;;
+  web-ready-int)
+    work="$(mktemp -d /tmp/nextclade-web-smoke.XXXXXX)"
+    log="$work/helper.out"
+    http_log="$work/http.log"
+    (
+      count=0
+      while ! grep -F 'Nextclade Web is ready.' "$log" >/dev/null 2>&1; do
+        count=$((count + 1))
+        [ "$count" -lt 30 ] || exit 1
+        sleep 1
+      done
+      wget -qO "$work/index.html" http://127.0.0.1:5817/
+      wget -qO "$work/app.json" http://127.0.0.1:5817/app.json
+    ) &
+    probe_pid="$!"
+    trap 'kill "$probe_pid" 2>/dev/null || true; wait "$probe_pid" 2>/dev/null || true; rm -rf "$work"' EXIT INT TERM
+    set +e
+    timeout -s INT -k 5 6 nextclade-web \
+      --port 5817 --host-port 8765 --log-file "$http_log" >"$log" 2>&1
+    status="$?"
+    set -e
+    wait "$probe_pid" || { cat "$log" >&2; fail 'Web HTTP probe failed'; }
+    [ "$status" -eq 130 ] || { cat "$log" >&2; fail "ready Ctrl-C status was ${status}"; }
+    grep -F '<title>Nextclade</title>' "$work/index.html" >/dev/null
+    grep -F '"version": "3.23.0"' "$work/app.json" >/dev/null
+    start_line="$(grep -nF 'Nextclade Web is starting.' "$log" | cut -d: -f1)"
+    url_line="$(grep -nF 'http://127.0.0.1:8765/' "$log" | cut -d: -f1)"
+    ssh_line="$(grep -nF 'ssh -N -L 8765:127.0.0.1:8765' "$log" | cut -d: -f1)"
+    stop_line="$(grep -nF 'Press Ctrl-C' "$log" | cut -d: -f1)"
+    logfile_line="$(grep -nF 'Internal HTTP log:' "$log" | cut -d: -f1)"
+    ready_line="$(grep -nF 'Nextclade Web is ready.' "$log" | cut -d: -f1)"
+    [ "$start_line" -lt "$url_line" ]
+    [ "$url_line" -lt "$ssh_line" ]
+    [ "$ssh_line" -lt "$stop_line" ]
+    [ "$stop_line" -lt "$logfile_line" ]
+    [ "$logfile_line" -lt "$ready_line" ]
+    grep -F 'GET / HTTP' "$http_log" >/dev/null
+    grep -F 'stopping after Ctrl-C' "$log" >/dev/null
+    grep -F 'Nextclade Web stopped.' "$log" >/dev/null
+    if ps | grep '[n]ginx' >/dev/null 2>&1; then
+      fail 'Nginx process remained after ready Ctrl-C'
+    fi
+    trap - EXIT INT TERM
+    rm -rf "$work"
+    ;;
+  web-ready-term)
+    work="$(mktemp -d /tmp/nextclade-web-smoke.XXXXXX)"
+    log="$work/helper.out"
+    http_log="$work/http.log"
+    nextclade-web --port 5817 --host-port 8765 --log-file "$http_log" >"$log" 2>&1 &
+    helper_pid="$!"
+    cleanup_web() {
+      if [ -n "${helper_pid:-}" ]; then
+        kill -TERM "$helper_pid" 2>/dev/null || true
+        wait "$helper_pid" 2>/dev/null || true
+      fi
+      rm -rf "$work"
+    }
+    trap cleanup_web EXIT INT TERM
+    count=0
+    while ! grep -F 'Nextclade Web is ready.' "$log" >/dev/null 2>&1; do
+      kill -0 "$helper_pid" 2>/dev/null || { cat "$log" >&2; fail 'Web helper exited before ready'; }
+      count=$((count + 1))
+      [ "$count" -lt 30 ] || { cat "$log" >&2; fail 'Web helper readiness timeout'; }
+      sleep 1
+    done
+    wget -qO "$work/index.html" http://127.0.0.1:5817/
+    wget -qO "$work/app.json" http://127.0.0.1:5817/app.json
+    grep -F '<title>Nextclade</title>' "$work/index.html" >/dev/null
+    grep -F '"version": "3.23.0"' "$work/app.json" >/dev/null
+    start_line="$(grep -nF 'Nextclade Web is starting.' "$log" | cut -d: -f1)"
+    url_line="$(grep -nF 'http://127.0.0.1:8765/' "$log" | cut -d: -f1)"
+    ssh_line="$(grep -nF 'ssh -N -L 8765:127.0.0.1:8765' "$log" | cut -d: -f1)"
+    stop_line="$(grep -nF 'Press Ctrl-C' "$log" | cut -d: -f1)"
+    logfile_line="$(grep -nF 'Internal HTTP log:' "$log" | cut -d: -f1)"
+    ready_line="$(grep -nF 'Nextclade Web is ready.' "$log" | cut -d: -f1)"
+    [ "$start_line" -lt "$url_line" ]
+    [ "$url_line" -lt "$ssh_line" ]
+    [ "$ssh_line" -lt "$stop_line" ]
+    [ "$stop_line" -lt "$logfile_line" ]
+    [ "$logfile_line" -lt "$ready_line" ]
+    grep -F 'GET / HTTP' "$http_log" >/dev/null
+    kill -TERM "$helper_pid"
+    set +e
+    wait "$helper_pid"
+    status="$?"
+    set -e
+    [ "$status" -eq 143 ] || { cat "$log" >&2; fail "ready TERM status was ${status}"; }
+    grep -F 'stopping after TERM' "$log" >/dev/null
+    grep -F 'Nextclade Web stopped.' "$log" >/dev/null
+    if ps | grep '[n]ginx' >/dev/null 2>&1; then
+      fail 'Nginx process remained after ready TERM'
+    fi
+    helper_pid=
+    trap - EXIT INT TERM
+    rm -rf "$work"
+    ;;
+  web-startup-int)
+    work="$(mktemp -d /tmp/nextclade-web-interrupt.XXXXXX)"
+    log="$work/helper.out"
+    trap 'rm -rf "$work"' EXIT INT TERM
+    set +e
+    NEXTCLADE_WEB_TEST_STARTUP_DELAY=30 \
+      timeout -s INT -k 5 2 nextclade-web \
+      --port 5818 --host-port 8766 --log-file "$work/http.log" >"$log" 2>&1
+    status="$?"
+    set -e
+    grep -F 'Nextclade Web is starting.' "$log" >/dev/null
+    if grep -F 'Nextclade Web is ready.' "$log" >/dev/null 2>&1; then
+      fail 'Web helper became ready during forced startup delay'
+    fi
+    [ "$status" -eq 130 ] || { cat "$log" >&2; fail "startup Ctrl-C status was ${status}"; }
+    grep -F 'stopping after Ctrl-C' "$log" >/dev/null
+    grep -F 'Nextclade Web stopped.' "$log" >/dev/null
+    if ps | grep '[n]ginx' >/dev/null 2>&1; then
+      fail 'Nginx process remained after startup Ctrl-C'
+    fi
+    trap - EXIT INT TERM
+    rm -rf "$work"
+    ;;
+  errors)
+    expect_status 2 nextclade-web --unknown
+    expect_status 2 nextclade-web --port
+    expect_status 2 nextclade-web --port 0
+    expect_status 2 nextclade-web --port 70000
+    expect_status 2 nextclade-web --bind-address 0.0.0.1
+    expect_status 2 nextclade-web --url-host 'bad/host'
+    expect_status 1 nextclade run
+    ;;
+  *)
+    echo "Usage: nextclade-smoke {identity|commands|core|web-ready-int|web-ready-term|web-startup-int|errors}" >&2
+    exit 2
+    ;;
+esac

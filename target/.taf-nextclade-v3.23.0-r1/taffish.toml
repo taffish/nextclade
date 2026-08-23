@@ -1,0 +1,50 @@
+[package]
+name = "nextclade"
+kind = "tool"
+version = "3.23.0"
+release = 1
+license = "Apache-2.0"
+main = "src/main.taf"
+
+[repository]
+url = "https://github.com/taffish/nextclade"
+
+[command]
+name = "taf-nextclade"
+
+[runtime]
+pipe = true
+command_mode = true
+
+[container]
+image = "ghcr.io/taffish/nextclade:3.23.0-r1"
+dockerfile = "docker/Dockerfile"
+build_platforms = "linux/amd64,linux/arm64"
+
+[meta]
+domain = "bio"
+categories = ["phylogenetics", "genomics", "viral-genomics", "variant-calling", "quality-control", "visualization"]
+keywords = ["nextstrain", "nextclade", "virus", "alignment", "clade-assignment", "mutation-calling", "phylogenetics", "quality-control", "web-ui"]
+description = "Nextclade 3.23.0 viral genome alignment, mutation calling, clade assignment, quality control and phylogenetic placement with CLI and browser interfaces."
+
+[upstream]
+name = "Nextclade"
+type = "github"
+repo = "nextstrain/nextclade"
+repository = "https://github.com/nextstrain/nextclade"
+homepage = "https://clades.nextstrain.org"
+manual = "https://docs.nextstrain.org/projects/nextclade/en/stable/"
+release_url = "https://github.com/nextstrain/nextclade/releases/tag/3.23.0"
+downloads = "https://github.com/nextstrain/nextclade/releases/download/3.23.0/nextclade-x86_64-unknown-linux-musl; https://github.com/nextstrain/nextclade/releases/download/3.23.0/nextclade-aarch64-unknown-linux-musl; https://github.com/nextstrain/nextclade/archive/refs/tags/3.23.0.tar.gz; https://github.com/nextstrain/nextclade/actions/runs/32247980559"
+version = "3.23.0"
+commit = "629ea8fb0cfe3165db13ddc75dab16d3c2292dbd"
+license = "MIT"
+citation = "Aksamentov I, Roemer C, Hodcroft EB, Neher RA. Nextclade: clade assignment, mutation calling and quality control for viral genomes. Journal of Open Source Software. 2021;6(67):3773."
+doi = "10.21105/joss.03773"
+watch = "tags"
+
+[smoke]
+backend = "docker"
+timeout = 180
+exist = ["nextclade", "nextalign", "nextclade-web", "nextclade-smoke", "nginx", "wget", "timeout", "sh"]
+test = ["nextclade-smoke identity", "nextclade-smoke commands", "nextclade-smoke core", "nextclade-smoke web-ready-int", "nextclade-smoke web-ready-term", "nextclade-smoke web-startup-int", "nextclade-smoke errors"]

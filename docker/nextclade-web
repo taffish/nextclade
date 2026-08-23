@@ -1,0 +1,306 @@
+#!/bin/sh
+set -eu
+
+port=8000
+host_port=
+url_host=127.0.0.1
+startup_timeout=30
+log_file=/tmp/nextclade-web.log
+
+if [ -n "${APPTAINER_CONTAINER:-}${SINGULARITY_CONTAINER:-}" ]; then
+  bind_address=127.0.0.1
+else
+  bind_address=0.0.0.0
+fi
+
+usage() {
+  cat <<'EOF'
+Start the packaged Nextclade Web client as a foreground browser service.
+
+Usage:
+  nextclade-web [options]
+
+Options:
+  -p, --port PORT         Container/service port, default 8000
+  --host-port PORT        Host port printed in the URL, default same as --port
+  --url-host HOST         Host name printed in the URL, default 127.0.0.1
+  --bind-address ADDRESS  Bind to 0.0.0.0 or 127.0.0.1 (backend-aware default)
+  --startup-timeout N     Readiness timeout in seconds, default 30
+  --log-file FILE         Internal HTTP log, default /tmp/nextclade-web.log
+  --version               Show the packaged Web version and upstream commit
+  -h, --help              Show this help
+
+Docker and Podman need an explicit host port mapping. Apptainer normally
+shares the host network and defaults to a loopback-only bind. The service has
+no built-in authentication or TLS; prefer a loopback mapping or SSH tunnel.
+EOF
+}
+
+need_value() {
+  if [ "$#" -lt 2 ]; then
+    echo "nextclade-web: missing value for $1" >&2
+    exit 2
+  fi
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -p|--port)
+      need_value "$@"
+      port="$2"
+      shift 2
+      ;;
+    --port=*) port="${1#*=}"; shift ;;
+    --host-port)
+      need_value "$@"
+      host_port="$2"
+      shift 2
+      ;;
+    --host-port=*) host_port="${1#*=}"; shift ;;
+    --url-host)
+      need_value "$@"
+      url_host="$2"
+      shift 2
+      ;;
+    --url-host=*) url_host="${1#*=}"; shift ;;
+    --bind-address)
+      need_value "$@"
+      bind_address="$2"
+      shift 2
+      ;;
+    --bind-address=*) bind_address="${1#*=}"; shift ;;
+    --startup-timeout)
+      need_value "$@"
+      startup_timeout="$2"
+      shift 2
+      ;;
+    --startup-timeout=*) startup_timeout="${1#*=}"; shift ;;
+    --log-file)
+      need_value "$@"
+      log_file="$2"
+      shift 2
+      ;;
+    --log-file=*) log_file="${1#*=}"; shift ;;
+    --version)
+      echo "Nextclade Web 3.23.0"
+      echo "upstream commit 629ea8fb0cfe3165db13ddc75dab16d3c2292dbd"
+      exit 0
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "nextclade-web: unknown option: $1" >&2
+      echo "Run 'nextclade-web --help' for usage." >&2
+      exit 2
+      ;;
+  esac
+done
+
+require_positive_integer() {
+  value="$1"
+  option_name="$2"
+  case "$value" in
+    ''|*[!0-9]*)
+      echo "nextclade-web: $option_name must be a positive integer" >&2
+      exit 2
+      ;;
+  esac
+  if [ "$value" -lt 1 ]; then
+    echo "nextclade-web: $option_name must be a positive integer" >&2
+    exit 2
+  fi
+}
+
+require_positive_integer "$port" "--port"
+require_positive_integer "$startup_timeout" "--startup-timeout"
+if [ "$port" -gt 65535 ]; then
+  echo "nextclade-web: --port must be at most 65535" >&2
+  exit 2
+fi
+if [ -z "$host_port" ]; then
+  host_port="$port"
+fi
+require_positive_integer "$host_port" "--host-port"
+if [ "$host_port" -gt 65535 ]; then
+  echo "nextclade-web: --host-port must be at most 65535" >&2
+  exit 2
+fi
+case "$bind_address" in
+  0.0.0.0|127.0.0.1) ;;
+  *)
+    echo "nextclade-web: --bind-address must be 0.0.0.0 or 127.0.0.1" >&2
+    exit 2
+    ;;
+esac
+case "$url_host" in
+  ''|*[!A-Za-z0-9._:-]*)
+    echo "nextclade-web: --url-host contains unsupported characters" >&2
+    exit 2
+    ;;
+esac
+if [ -z "$log_file" ]; then
+  echo "nextclade-web: --log-file must not be empty" >&2
+  exit 2
+fi
+
+runtime_dir="$(mktemp -d /tmp/nextclade-web.XXXXXX)"
+nginx_config="${runtime_dir}/nginx.conf"
+service_pid=
+
+stop_service() {
+  if [ -n "${service_pid:-}" ] && kill -0 "$service_pid" 2>/dev/null; then
+    kill -TERM "$service_pid" 2>/dev/null || true
+    count=0
+    while kill -0 "$service_pid" 2>/dev/null && [ "$count" -lt 10 ]; do
+      count=$((count + 1))
+      sleep 1
+    done
+    if kill -0 "$service_pid" 2>/dev/null; then
+      kill -KILL "$service_pid" 2>/dev/null || true
+    fi
+    wait "$service_pid" >/dev/null 2>&1 || true
+  fi
+  service_pid=
+}
+
+cleanup() {
+  stop_service
+  rm -rf "$runtime_dir"
+}
+
+on_int() {
+  trap - INT TERM EXIT
+  echo
+  echo "Nextclade Web is stopping after Ctrl-C."
+  cleanup
+  echo "Nextclade Web stopped."
+  exit 130
+}
+
+on_term() {
+  trap - INT TERM EXIT
+  echo
+  echo "Nextclade Web is stopping after TERM."
+  cleanup
+  echo "Nextclade Web stopped."
+  exit 143
+}
+
+trap on_int INT
+trap on_term TERM
+trap cleanup EXIT
+
+mkdir -p "$(dirname "$log_file")"
+: > "$log_file"
+
+cat <<EOF
+Nextclade Web is starting.
+
+Open this URL after mapping the container port to the host:
+  http://${url_host}:${host_port}/
+
+If this is running on a remote server over SSH, tunnel the host port first:
+  ssh -N -L ${host_port}:127.0.0.1:${host_port} user@server
+
+Then open the same URL in your local browser.
+
+Press Ctrl-C to stop this Nextclade Web session.
+Internal HTTP log:
+  ${log_file}
+EOF
+
+test_delay="${NEXTCLADE_WEB_TEST_STARTUP_DELAY:-0}"
+case "$test_delay" in
+  ''|*[!0-9]*)
+    echo "nextclade-web: NEXTCLADE_WEB_TEST_STARTUP_DELAY must be a nonnegative integer" >&2
+    exit 2
+    ;;
+esac
+if [ "$test_delay" -gt 0 ]; then
+  sleep "$test_delay" &
+  service_pid="$!"
+  wait "$service_pid"
+  service_pid=
+fi
+
+cat > "$nginx_config" <<EOF
+pid ${runtime_dir}/nginx.pid;
+error_log /dev/stderr info;
+worker_processes 1;
+
+events {
+  worker_connections 128;
+}
+
+http {
+  include /etc/nginx/mime.types;
+  default_type application/octet-stream;
+  log_format main '\$remote_addr - \$request \$status \$body_bytes_sent';
+  access_log /dev/stdout main;
+  sendfile on;
+
+  server {
+    listen ${bind_address}:${port};
+    server_name _;
+    root /usr/share/nextclade-web;
+    index index.html;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+    add_header X-Frame-Options SAMEORIGIN always;
+
+    location = /_taf_health {
+      access_log off;
+      default_type text/plain;
+      return 200 'nextclade-web\n';
+    }
+
+    location / {
+      try_files \$uri \$uri.html \$uri/ /index.html;
+    }
+  }
+}
+EOF
+
+nginx -c "$nginx_config" -g 'daemon off;' >"$log_file" 2>&1 &
+service_pid="$!"
+
+probe_url="http://127.0.0.1:${port}/_taf_health"
+elapsed=0
+while [ "$elapsed" -lt "$startup_timeout" ]; do
+  if ! kill -0 "$service_pid" 2>/dev/null; then
+    set +e
+    wait "$service_pid"
+    service_status="$?"
+    set -e
+    service_pid=
+    echo "nextclade-web: service exited during startup with status ${service_status}" >&2
+    tail -n 40 "$log_file" >&2 || true
+    exit 1
+  fi
+  if response="$(wget -qO- -T 1 "$probe_url" 2>/dev/null)" && \
+     [ "$response" = "nextclade-web" ] && kill -0 "$service_pid" 2>/dev/null; then
+    echo
+    echo "Nextclade Web is ready."
+    set +e
+    wait "$service_pid"
+    service_status="$?"
+    set -e
+    service_pid=
+    trap - EXIT
+    rm -rf "$runtime_dir"
+    if [ "$service_status" -ne 0 ]; then
+      echo "nextclade-web: service exited with status ${service_status}" >&2
+      tail -n 40 "$log_file" >&2 || true
+    fi
+    exit "$service_status"
+  fi
+  elapsed=$((elapsed + 1))
+  sleep 1
+done
+
+echo "nextclade-web: timed out waiting for ${probe_url}" >&2
+tail -n 40 "$log_file" >&2 || true
+exit 1
