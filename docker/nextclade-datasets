@@ -1,0 +1,640 @@
+#!/bin/sh
+set -eu
+umask 022
+
+app_version=3.23.0
+schema=taffish.nextclade.dataset-root.v1
+member_schema=taffish.nextclade.dataset-member.v1
+default_server=https://data.clades.nextstrain.org/v3
+default_install_root=/dataset-install/${app_version}
+default_runtime_root=/opt/taffish/datasets/nextclade
+
+usage() {
+  cat <<'EOF'
+Prepare and verify version-pinned Nextclade datasets.
+
+Usage:
+  nextclade-datasets install --name ID --tag TAG [options]
+  nextclade-datasets verify [--resource-root ROOT | --dataset-dir DIR]
+  nextclade-datasets list-installed [--resource-root ROOT]
+  nextclade-datasets path --name ID --tag TAG [--resource-root ROOT]
+
+Install options:
+  --resource-root ROOT  Prepared version root; default /dataset-install/3.23.0
+  --server URL          Dataset server; default https://data.clades.nextstrain.org/v3
+  --source-dir DIR      Install a user-supplied dataset directory without network
+  --dry-run             Resolve and report; do not download or write
+  --force               Atomically replace an incomplete or existing member
+
+ID and TAG are always required. The helper never selects a pathogen or latest
+dataset for you. Official catalogs do not publish per-dataset byte sizes,
+checksums, or a uniform resource license; the helper records these limits and
+creates a post-download SHA256 inventory for local integrity and reuse.
+EOF
+}
+
+die() {
+  echo "nextclade-datasets: $*" >&2
+  exit 64
+}
+
+fail() {
+  echo "nextclade-datasets: $*" >&2
+  exit 1
+}
+
+need_value() {
+  [ "$#" -ge 2 ] || die "missing value for $1"
+}
+
+safe_dataset_id() {
+  value="$1"
+  case "$value" in
+    ''|/*|*/|*//*|.|..|./*|../*|*/.|*/..|*/./*|*/../*|*[!A-Za-z0-9._+/-]*) return 1 ;;
+  esac
+  return 0
+}
+
+safe_tag() {
+  case "$1" in
+    ''|.|..|*[!A-Za-z0-9._:+-]*) return 1 ;;
+  esac
+  return 0
+}
+
+safe_backend_path() {
+  value="$1"
+  [ -n "$value" ] || return 1
+  [ "$(printf '%s' "$value" | tr -d ' \011\012\013\014\015\052\054\072\077\133\135')" = "$value" ] || return 1
+  case "$value" in
+    .|..|./*|../*|*/.|*/..|*/./*|*/../*) return 1 ;;
+  esac
+  return 0
+}
+
+canonical_dir() {
+  (CDPATH= cd "$1" 2>/dev/null && pwd -P)
+}
+
+ensure_directory_within_root() {
+  ed_root="$1"
+  ed_path="$2"
+  if [ -e "$ed_path" ]; then
+    [ -d "$ed_path" ] || die "resource control path is not a directory: $ed_path"
+  else
+    mkdir "$ed_path"
+  fi
+  ed_physical=$(canonical_dir "$ed_path")
+  case "$ed_physical" in
+    "$ed_root"|"$ed_root"/*) ;;
+    *) die "resource control path resolves outside its root: $ed_path -> $ed_physical" ;;
+  esac
+}
+
+ensure_member_parent() {
+  emp_root="$1"
+  emp_id="$2"
+  emp_path="$emp_root/members"
+  emp_old_ifs=$IFS
+  IFS=/
+  set -- $emp_id
+  IFS=$emp_old_ifs
+  for emp_segment do
+    emp_path="$emp_path/$emp_segment"
+    ensure_directory_within_root "$emp_root" "$emp_path"
+  done
+}
+
+mount_target_present() {
+  target="$1"
+  awk -v target="$target" '$5 == target { found = 1 } END { exit(found ? 0 : 1) }' \
+    /proc/self/mountinfo 2>/dev/null
+}
+
+require_install_mount() {
+  root="$1"
+  case "$root" in
+    /dataset-install|/dataset-install/*)
+      mount_target_present /dataset-install ||
+        die "/dataset-install is not an actual bind; set TAFFISH_NEXTCLADE_DATASET_INSTALL_ROOT to an existing writable host directory"
+      ;;
+  esac
+}
+
+nearest_existing_dir() {
+  candidate="$1"
+  while [ ! -d "$candidate" ]; do
+    parent=$(dirname "$candidate")
+    [ "$parent" != "$candidate" ] || break
+    candidate="$parent"
+  done
+  printf '%s\n' "$candidate"
+}
+
+available_bytes() {
+  candidate=$(nearest_existing_dir "$1")
+  df -Pk "$candidate" 2>/dev/null | awk 'NR == 2 { print $4 * 1024 }'
+}
+
+validate_dataset_tree() {
+  dir="$1"
+  tag="$2"
+  [ -d "$dir" ] || fail "dataset directory does not exist: $dir"
+  [ -s "$dir/reference.fasta" ] || fail "dataset is incomplete: missing reference.fasta"
+  [ -s "$dir/pathogen.json" ] || fail "dataset is incomplete: missing pathogen.json"
+  jq -e . "$dir/pathogen.json" >/dev/null 2>&1 || fail "dataset pathogen.json is not valid JSON"
+  actual_tag=$(jq -r '.version.tag // empty' "$dir/pathogen.json")
+  [ "$actual_tag" = "$tag" ] ||
+    fail "dataset tag mismatch: requested $tag, pathogen.json reports ${actual_tag:-missing}"
+  bad=$(find "$dir" \( -type l -o \! -type f -a \! -type d \) -print -quit)
+  [ -z "$bad" ] || fail "dataset contains a symlink or special file: $bad"
+  reserved=$(find "$dir" -type f \
+    \( -name TAFFISH_DATASET_MEMBER.json \
+       -o -name TAFFISH_DATASET_MEMBER_INVENTORY.sha256 \
+       -o -name TAFFISH_DATASET_MEMBER_READY \) -print -quit)
+  [ -z "$reserved" ] || fail "source dataset contains reserved TAFFISH marker: $reserved"
+}
+
+verify_member() {
+  vm_dir="$1"
+  vm_expected_id="${2:-}"
+  vm_expected_tag="${3:-}"
+  vm_expected_rel="${4:-}"
+  [ -d "$vm_dir" ] || return 1
+  [ ! -L "$vm_dir" ] || return 1
+  for vm_marker in TAFFISH_DATASET_MEMBER.json TAFFISH_DATASET_MEMBER_INVENTORY.sha256 TAFFISH_DATASET_MEMBER_READY; do
+    [ -f "$vm_dir/$vm_marker" ] && [ ! -L "$vm_dir/$vm_marker" ] && [ -s "$vm_dir/$vm_marker" ] || return 1
+  done
+  grep -Fx "$member_schema" "$vm_dir/TAFFISH_DATASET_MEMBER_READY" >/dev/null 2>&1 || return 1
+  jq -e --arg schema "$member_schema" --arg version "$app_version" \
+    '.schema == $schema and .app_version == $version and
+     (.dataset_id | type == "string" and length > 0) and
+     (.tag | type == "string" and length > 0) and
+     (.relative_path | type == "string" and length > 0) and
+     (.dataset_digest | type == "string" and test("^[0-9a-f]{64}$")) and
+     (.files | type == "number" and . >= 1 and floor == .) and
+     (.bytes | type == "number" and . >= 1 and floor == .) and
+     (.source | type == "string" and length > 0) and
+     (.license | type == "string" and length > 0) and
+     .upstream_checksum == "unavailable" and
+     (((.source | startswith("local:")) and .catalog_sha256 == "not-applicable-local-source") or
+      ((.source | startswith("http://") or startswith("https://")) and
+       (.catalog_sha256 | type == "string" and test("^[0-9a-f]{64}$"))))' \
+    "$vm_dir/TAFFISH_DATASET_MEMBER.json" >/dev/null 2>&1 || return 1
+  vm_id=$(jq -r '.dataset_id' "$vm_dir/TAFFISH_DATASET_MEMBER.json")
+  vm_tag=$(jq -r '.tag' "$vm_dir/TAFFISH_DATASET_MEMBER.json")
+  vm_rel=$(jq -r '.relative_path' "$vm_dir/TAFFISH_DATASET_MEMBER.json")
+  safe_dataset_id "$vm_id" || return 1
+  safe_tag "$vm_tag" || return 1
+  [ "$vm_rel" = "members/$vm_id/$vm_tag" ] || return 1
+  [ -z "$vm_expected_id" ] || [ "$vm_id" = "$vm_expected_id" ] || return 1
+  [ -z "$vm_expected_tag" ] || [ "$vm_tag" = "$vm_expected_tag" ] || return 1
+  [ -z "$vm_expected_rel" ] || [ "$vm_rel" = "$vm_expected_rel" ] || return 1
+  vm_bad=$(find "$vm_dir" \( -type l -o \! -type f -a \! -type d \) -print -quit)
+  [ -z "$vm_bad" ] || return 1
+  vm_recorded_inventory_digest=$(sha256sum "$vm_dir/TAFFISH_DATASET_MEMBER_INVENTORY.sha256" | awk '{print $1}')
+  vm_actual_inventory_digest=$(
+    CDPATH= cd "$vm_dir" &&
+      find . -type f \
+        ! -name TAFFISH_DATASET_MEMBER_INVENTORY.sha256 \
+        ! -name TAFFISH_DATASET_MEMBER.json \
+        ! -name TAFFISH_DATASET_MEMBER_READY \
+        -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}'
+  ) || return 1
+  [ "$vm_recorded_inventory_digest" = "$vm_actual_inventory_digest" ] || return 1
+  (CDPATH= cd "$vm_dir" && sha256sum -c TAFFISH_DATASET_MEMBER_INVENTORY.sha256 >/dev/null 2>&1) || return 1
+  vm_expected_digest=$(jq -r '.dataset_digest' "$vm_dir/TAFFISH_DATASET_MEMBER.json")
+  vm_actual_digest=$(sha256sum "$vm_dir/TAFFISH_DATASET_MEMBER_INVENTORY.sha256" | awk '{print $1}')
+  [ "$vm_expected_digest" = "$vm_actual_digest" ] || return 1
+  vm_expected_files=$(jq -r '.files' "$vm_dir/TAFFISH_DATASET_MEMBER.json")
+  vm_actual_files=$(find "$vm_dir" -type f \
+    ! -name TAFFISH_DATASET_MEMBER.json \
+    ! -name TAFFISH_DATASET_MEMBER_INVENTORY.sha256 \
+    ! -name TAFFISH_DATASET_MEMBER_READY | wc -l | tr -d ' ')
+  [ "$vm_expected_files" = "$vm_actual_files" ] || return 1
+  vm_expected_bytes=$(jq -r '.bytes' "$vm_dir/TAFFISH_DATASET_MEMBER.json")
+  vm_actual_bytes=$(find "$vm_dir" -type f \
+    ! -name TAFFISH_DATASET_MEMBER.json \
+    ! -name TAFFISH_DATASET_MEMBER_INVENTORY.sha256 \
+    ! -name TAFFISH_DATASET_MEMBER_READY \
+    -exec wc -c {} \; | awk '{ total += $1 } END { print total + 0 }')
+  [ "$vm_expected_bytes" = "$vm_actual_bytes" ] || return 1
+  return 0
+}
+
+verify_root() {
+  vr_root="$1"
+  [ -d "$vr_root" ] || return 1
+  [ ! -L "$vr_root" ] || return 1
+  [ -d "$vr_root/members" ] && [ ! -L "$vr_root/members" ] || return 1
+  if [ -e "$vr_root/.taffish" ]; then
+    [ -d "$vr_root/.taffish" ] && [ ! -L "$vr_root/.taffish" ] || return 1
+  fi
+  for vr_marker in TAFFISH_DATASET_MANIFEST.json TAFFISH_DATASET_INVENTORY.tsv TAFFISH_DATASET_READY; do
+    [ -f "$vr_root/$vr_marker" ] && [ ! -L "$vr_root/$vr_marker" ] && [ -s "$vr_root/$vr_marker" ] || return 1
+  done
+  grep -Fx "$schema" "$vr_root/TAFFISH_DATASET_READY" >/dev/null 2>&1 || return 1
+  jq -e --arg schema "$schema" --arg version "$app_version" \
+    '.schema == $schema and .app_version == $version and
+     .resource_type == "selectable-family" and
+     .resource_license_status == "not-declared-by-upstream-dataset-catalog" and
+     (.members | type == "array" and length > 0)' \
+    "$vr_root/TAFFISH_DATASET_MANIFEST.json" >/dev/null 2>&1 || return 1
+  IFS= read -r vr_header < "$vr_root/TAFFISH_DATASET_INVENTORY.tsv" || return 1
+  [ "$vr_header" = "$(printf 'dataset_id\ttag\trelative_path\tdataset_digest\tfiles\tbytes\tsource\tlicense')" ] || return 1
+  awk -F '\t' '
+    NR == 1 { next }
+    NF != 8 { exit 1 }
+    { key = $1 FS $2; if (seen[key]++) exit 1; rows++ }
+    END { if (rows < 1) exit 1 }
+  ' "$vr_root/TAFFISH_DATASET_INVENTORY.tsv" || return 1
+  vr_count=0
+  while IFS="$(printf '\t')" read -r index_dataset_id index_tag index_rel index_digest index_files index_bytes index_source index_license; do
+    [ "$index_dataset_id" = dataset_id ] && continue
+    safe_dataset_id "$index_dataset_id" || return 1
+    safe_tag "$index_tag" || return 1
+    case "$index_digest" in *[!0-9a-f]*|'') return 1 ;; esac
+    [ "${#index_digest}" -eq 64 ] || return 1
+    case "$index_files" in *[!0-9]*|'') return 1 ;; esac
+    case "$index_bytes" in *[!0-9]*|'') return 1 ;; esac
+    [ "$index_files" -gt 0 ] && [ "$index_bytes" -gt 0 ] || return 1
+    [ -n "$index_source" ] && [ -n "$index_license" ] || return 1
+    case "$index_rel" in members/*) ;; *) return 1 ;; esac
+    [ "$index_rel" = "members/$index_dataset_id/$index_tag" ] || return 1
+    vr_member="$vr_root/$index_rel/TAFFISH_DATASET_MEMBER.json"
+    verify_member "$vr_root/$index_rel" "$index_dataset_id" "$index_tag" "$index_rel" || return 1
+    jq -e \
+      --arg digest "$index_digest" --arg source "$index_source" --arg license "$index_license" \
+      --argjson files "$index_files" --argjson bytes "$index_bytes" \
+      '.dataset_digest == $digest and .files == $files and .bytes == $bytes and
+       .source == $source and .license == $license' \
+      "$vr_member" >/dev/null 2>&1 || return 1
+    jq -e --slurpfile member "$vr_member" --arg id "$index_dataset_id" --arg tag "$index_tag" \
+      '([.members[] | select(.dataset_id == $id and .tag == $tag)] | length) == 1 and
+       any(.members[]; . == $member[0])' \
+      "$vr_root/TAFFISH_DATASET_MANIFEST.json" >/dev/null 2>&1 || return 1
+    vr_count=$((vr_count + 1))
+  done < "$vr_root/TAFFISH_DATASET_INVENTORY.tsv"
+  vr_manifest_count=$(jq -r '.members | length' "$vr_root/TAFFISH_DATASET_MANIFEST.json")
+  [ "$vr_count" -gt 0 ] && [ "$vr_count" = "$vr_manifest_count" ]
+}
+
+write_root_index() {
+  root="$1"
+  meta="$root/.taffish"
+  mkdir -p "$meta"
+  rm -f "$root/TAFFISH_DATASET_READY"
+  manifest_list="$meta/member-manifests.$$"
+  find "$root/members" -type f -name TAFFISH_DATASET_MEMBER.json -print | sort > "$manifest_list"
+  [ -s "$manifest_list" ] || fail "prepared root has no complete members"
+  set --
+  while IFS= read -r manifest; do
+    verify_member "$(dirname "$manifest")" || fail "member failed integrity verification: $(dirname "$manifest")"
+    set -- "$@" "$manifest"
+  done < "$manifest_list"
+  manifest_tmp="$meta/root-manifest.$$"
+  inventory_tmp="$meta/root-inventory.$$"
+  jq -s --arg schema "$schema" --arg version "$app_version" \
+    '{schema:$schema, app_version:$version, resource_type:"selectable-family", resource_license_status:"not-declared-by-upstream-dataset-catalog", members:(sort_by([.dataset_id,.tag]))}' \
+    "$@" > "$manifest_tmp"
+  printf 'dataset_id\ttag\trelative_path\tdataset_digest\tfiles\tbytes\tsource\tlicense\n' > "$inventory_tmp"
+  jq -r '.members[] | [.dataset_id,.tag,.relative_path,.dataset_digest,(.files|tostring),(.bytes|tostring),.source,.license] | @tsv' \
+    "$manifest_tmp" >> "$inventory_tmp"
+  if [ "${NEXTCLADE_DATASETS_TEST_FAIL_ROOT_INDEX:-0}" = 1 ]; then
+    fail "injected root index failure"
+  fi
+  chmod 0644 "$manifest_tmp" "$inventory_tmp"
+  mv "$manifest_tmp" "$root/TAFFISH_DATASET_MANIFEST.json"
+  mv "$inventory_tmp" "$root/TAFFISH_DATASET_INVENTORY.tsv"
+  printf '%s\n' "$schema" > "$root/TAFFISH_DATASET_READY"
+  chmod 0644 "$root/TAFFISH_DATASET_READY"
+  rm -f "$manifest_list"
+}
+
+resolve_catalog_member() {
+  requested="$1"
+  tag="$2"
+  server="$3"
+  catalog_file="$4"
+  log_file="$5"
+  attempt=1
+  while :; do
+    if nextclade dataset list --server "$server" --name "$requested" --tag "$tag" --json \
+      > "$catalog_file" 2> "$log_file"; then
+      break
+    fi
+    [ "$attempt" -lt 3 ] || {
+      tail -n 40 "$log_file" >&2 || true
+      fail "catalog query failed after 3 attempts"
+    }
+    attempt=$((attempt + 1))
+    sleep 2
+  done
+  count=$(jq -r 'length' "$catalog_file")
+  [ "$count" = 1 ] || fail "selector resolved to $count datasets; use an exact dataset ID and compatible tag"
+  canonical=$(jq -r '.[0].path // empty' "$catalog_file")
+  resolved_tag=$(jq -r '.[0].version.tag // empty' "$catalog_file")
+  safe_dataset_id "$canonical" || fail "catalog returned an unsafe dataset ID"
+  [ "$resolved_tag" = "$tag" ] || fail "catalog resolved a different tag: ${resolved_tag:-missing}"
+  printf '%s\n' "$canonical"
+}
+
+command=${1:-}
+[ -n "$command" ] || { usage; exit 2; }
+shift || true
+
+case "$command" in
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
+  --version|version)
+    echo "nextclade-datasets ${app_version}-r2"
+    exit 0
+    ;;
+  install)
+    name=
+    tag=
+    root="$default_install_root"
+    server="$default_server"
+    source_dir=
+    dry_run=0
+    force=0
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --name) need_value "$@"; name="$2"; shift 2 ;;
+        --name=*) name=${1#*=}; shift ;;
+        --tag) need_value "$@"; tag="$2"; shift 2 ;;
+        --tag=*) tag=${1#*=}; shift ;;
+        --resource-root) need_value "$@"; root="$2"; shift 2 ;;
+        --resource-root=*) root=${1#*=}; shift ;;
+        --server) need_value "$@"; server="$2"; shift 2 ;;
+        --server=*) server=${1#*=}; shift ;;
+        --source-dir) need_value "$@"; source_dir="$2"; shift 2 ;;
+        --source-dir=*) source_dir=${1#*=}; shift ;;
+        --dry-run) dry_run=1; shift ;;
+        --force) force=1; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) die "unknown install option: $1" ;;
+      esac
+    done
+    safe_dataset_id "$name" || die "unsafe or missing dataset ID: ${name:-missing}"
+    safe_tag "$tag" || die "unsafe or missing dataset tag: ${tag:-missing}"
+    case "$server" in http://*|https://*) ;; *) die "--server must use http:// or https://" ;; esac
+    safe_backend_path "$root" || die "resource root contains unsupported backend characters: $root"
+    catalog_file=$(mktemp /tmp/nextclade-dataset-catalog.XXXXXX)
+    log_file=$(mktemp /tmp/nextclade-dataset-log.XXXXXX)
+    trap 'rm -f "$catalog_file" "$log_file"' EXIT INT TERM
+    if [ -n "$source_dir" ]; then
+      [ -d "$source_dir" ] || die "--source-dir is not a directory: $source_dir"
+      source_dir=$(canonical_dir "$source_dir")
+      validate_dataset_tree "$source_dir" "$tag"
+      canonical="$name"
+      catalog_sha=not-applicable-local-source
+      source="local:${source_dir}"
+      estimated_bytes=$(find "$source_dir" -type f -exec wc -c {} \; | awk '{ total += $1 } END { print total + 0 }')
+      estimated_reason="calculated from local source files"
+    else
+      canonical=$(resolve_catalog_member "$name" "$tag" "$server" "$catalog_file" "$log_file")
+      catalog_sha=$(sha256sum "$catalog_file" | awk '{print $1}')
+      source="${server}/#${canonical}@${tag}"
+      estimated_bytes=unknown
+      estimated_reason="upstream catalog does not publish member size"
+    fi
+    target="$root/members/$canonical/$tag"
+    avail=$(available_bytes "$root")
+    if [ "$dry_run" -eq 1 ]; then
+      printf '%s\n' \
+        "dataset_id=$canonical" \
+        "tag=$tag" \
+        "server=$server" \
+        "source=$source" \
+        "target=$target" \
+        "estimated_bytes=$estimated_bytes" \
+        "estimated_bytes_reason=$estimated_reason" \
+        "upstream_checksum=unavailable" \
+        "resource_license=not declared by the upstream dataset catalog or repository" \
+        "available_bytes=${avail:-unknown}" \
+        "catalog_sha256=$catalog_sha"
+      exit 0
+    fi
+    require_install_mount "$root"
+    persistent_install=0
+    case "$root" in /dataset-install|/dataset-install/*) persistent_install=1 ;; esac
+    parent=$(dirname "$root")
+    [ -d "$parent" ] || die "resource-root parent does not exist: $parent"
+    [ -w "$parent" ] || die "resource-root parent is not writable: $parent"
+    physical_parent=$(canonical_dir "$parent")
+    if [ "$persistent_install" -eq 1 ]; then
+      case "$physical_parent" in
+        /dataset-install|/dataset-install/*) ;;
+        *) die "resource-root parent resolves outside the /dataset-install bind: $physical_parent" ;;
+      esac
+    fi
+    if [ -e "$root" ]; then
+      [ -d "$root" ] || die "resource root exists but is not a directory: $root"
+    else
+      mkdir "$root"
+    fi
+    root=$(canonical_dir "$root")
+    if [ "$persistent_install" -eq 1 ]; then
+      case "$root" in
+        /dataset-install|/dataset-install/*) ;;
+        *) die "resource root resolves outside the /dataset-install bind: $root" ;;
+      esac
+    fi
+    ensure_directory_within_root "$root" "$root/members"
+    ensure_directory_within_root "$root" "$root/.taffish"
+    target="$root/members/$canonical/$tag"
+    [ -w "$root" ] || die "resource root is not writable: $root"
+    lock="$root/.taffish-install.lock"
+    mkdir "$lock" 2>/dev/null || die "another dataset install holds the root lock: $lock"
+    stage="$root/.staging.$$.dataset"
+    backup=
+    promoted=0
+    index_started=0
+    complete=0
+    cleanup_install() {
+      rm -rf "$stage"
+      if [ "$complete" -eq 0 ]; then
+        if [ "$promoted" -eq 1 ] && [ -e "$target" ]; then
+          rm -rf "$target"
+        fi
+        if [ -n "$backup" ] && [ -e "$backup" ] && [ ! -e "$target" ]; then
+          mkdir -p "$(dirname "$target")"
+          mv "$backup" "$target" 2>/dev/null || true
+        fi
+        if [ "$promoted" -eq 1 ] || [ "$index_started" -eq 1 ]; then
+          for marker in TAFFISH_DATASET_MANIFEST.json TAFFISH_DATASET_INVENTORY.tsv TAFFISH_DATASET_READY; do
+            if [ -f "$lock/$marker" ]; then
+              rm -f "$root/$marker"
+              cp -p "$lock/$marker" "$root/$marker"
+            else
+              rm -f "$root/$marker"
+            fi
+          done
+        fi
+      fi
+      rm -f "$root/.taffish/member-manifests.$$" \
+        "$root/.taffish/root-manifest.$$" \
+        "$root/.taffish/root-inventory.$$"
+      rm -f "$lock/TAFFISH_DATASET_MANIFEST.json" \
+        "$lock/TAFFISH_DATASET_INVENTORY.tsv" \
+        "$lock/TAFFISH_DATASET_READY"
+      rmdir "$lock" 2>/dev/null || true
+      rm -f "$catalog_file" "$log_file"
+    }
+    trap cleanup_install EXIT INT TERM
+    ensure_member_parent "$root" "$canonical"
+    for marker in TAFFISH_DATASET_MANIFEST.json TAFFISH_DATASET_INVENTORY.tsv TAFFISH_DATASET_READY; do
+      if [ -e "$root/$marker" ] || [ -L "$root/$marker" ]; then
+        [ -f "$root/$marker" ] && [ ! -L "$root/$marker" ] ||
+          die "root marker is not a regular non-symlink file: $root/$marker"
+        cp -p "$root/$marker" "$lock/$marker"
+      fi
+    done
+    if [ -e "$target" ]; then
+      if verify_member "$target" "$canonical" "$tag" "members/$canonical/$tag" && [ "$force" -eq 0 ]; then
+        if verify_root "$root"; then
+          echo "nextclade-datasets: already complete: $target"
+          exit 0
+        fi
+        index_started=1
+        write_root_index "$root"
+        verify_root "$root" || fail "repaired root failed final integrity verification"
+        complete=1
+        echo "nextclade-datasets: repaired root index for complete member: $target"
+        exit 0
+      fi
+      [ "$force" -eq 1 ] || fail "target exists but is incomplete or replacement was not authorized: $target"
+      backup="$root/.backup.$$.dataset"
+      mv "$target" "$backup"
+    fi
+    mkdir -p "$stage/data"
+    if [ -n "$source_dir" ]; then
+      validate_dataset_tree "$source_dir" "$tag"
+      cp -a "$source_dir/." "$stage/data/"
+    else
+      attempt=1
+      while :; do
+        rm -rf "$stage/data"
+        mkdir -p "$stage/data"
+        if nextclade dataset get --server "$server" --name "$canonical" --tag "$tag" \
+          --output-dir "$stage/data" > "$log_file" 2>&1; then
+          break
+        fi
+        [ "$attempt" -lt 3 ] || {
+          tail -n 40 "$log_file" >&2 || true
+          fail "dataset download failed after 3 attempts"
+        }
+        attempt=$((attempt + 1))
+        sleep 2
+      done
+    fi
+    validate_dataset_tree "$stage/data" "$tag"
+    (CDPATH= cd "$stage/data" && find . -type f \
+      ! -name TAFFISH_DATASET_MEMBER_INVENTORY.sha256 \
+      ! -name TAFFISH_DATASET_MEMBER.json \
+      ! -name TAFFISH_DATASET_MEMBER_READY \
+      -print0 | sort -z | xargs -0 sha256sum \
+      > TAFFISH_DATASET_MEMBER_INVENTORY.sha256)
+    files=$(find "$stage/data" -type f ! -name TAFFISH_DATASET_MEMBER_INVENTORY.sha256 | wc -l | tr -d ' ')
+    bytes=$(find "$stage/data" -type f ! -name TAFFISH_DATASET_MEMBER_INVENTORY.sha256 \
+      -exec wc -c {} \; | awk '{ total += $1 } END { print total + 0 }')
+    digest=$(sha256sum "$stage/data/TAFFISH_DATASET_MEMBER_INVENTORY.sha256" | awk '{print $1}')
+    relative="members/$canonical/$tag"
+    jq -n \
+      --arg schema "$member_schema" \
+      --arg version "$app_version" \
+      --arg dataset_id "$canonical" \
+      --arg tag "$tag" \
+      --arg relative_path "$relative" \
+      --arg dataset_digest "$digest" \
+      --arg source "$source" \
+      --arg catalog_sha256 "$catalog_sha" \
+      --arg license "not-declared-by-upstream-dataset-catalog" \
+      --argjson files "$files" \
+      --argjson bytes "$bytes" \
+      '{schema:$schema, app_version:$version, dataset_id:$dataset_id, tag:$tag, relative_path:$relative_path, dataset_digest:$dataset_digest, files:$files, bytes:$bytes, source:$source, catalog_sha256:$catalog_sha256, upstream_checksum:"unavailable", license:$license}' \
+      > "$stage/data/TAFFISH_DATASET_MEMBER.json"
+    printf '%s\n' "$member_schema" > "$stage/data/TAFFISH_DATASET_MEMBER_READY"
+    find "$stage/data" -type d -exec chmod 0755 {} +
+    find "$stage/data" -type f -exec chmod 0644 {} +
+    mkdir -p "$(dirname "$target")"
+    mv "$stage/data" "$target"
+    promoted=1
+    index_started=1
+    write_root_index "$root"
+    verify_root "$root" || fail "prepared root failed final integrity verification"
+    [ -z "$backup" ] || rm -rf "$backup"
+    backup=
+    complete=1
+    echo "nextclade-datasets: installed $canonical@$tag"
+    echo "nextclade-datasets: dataset $target"
+    echo "nextclade-datasets: digest $digest"
+    ;;
+  verify)
+    root=
+    dataset_dir=
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --resource-root) need_value "$@"; root="$2"; shift 2 ;;
+        --resource-root=*) root=${1#*=}; shift ;;
+        --dataset-dir) need_value "$@"; dataset_dir="$2"; shift 2 ;;
+        --dataset-dir=*) dataset_dir=${1#*=}; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) die "unknown verify option: $1" ;;
+      esac
+    done
+    if [ -n "$root" ] && [ -n "$dataset_dir" ]; then
+      die "choose --resource-root or --dataset-dir, not both"
+    fi
+    if [ -n "$dataset_dir" ]; then
+      verify_member "$dataset_dir" || fail "dataset member failed integrity verification: $dataset_dir"
+      echo "nextclade-datasets: dataset member verified: $dataset_dir"
+    else
+      root=${root:-$default_runtime_root}
+      verify_root "$root" || fail "dataset root failed integrity verification: $root"
+      echo "nextclade-datasets: dataset root verified: $root"
+    fi
+    ;;
+  list-installed)
+    root="$default_runtime_root"
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --resource-root) need_value "$@"; root="$2"; shift 2 ;;
+        --resource-root=*) root=${1#*=}; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) die "unknown list-installed option: $1" ;;
+      esac
+    done
+    verify_root "$root" || fail "dataset root failed integrity verification: $root"
+    cat "$root/TAFFISH_DATASET_INVENTORY.tsv"
+    ;;
+  path)
+    name=
+    tag=
+    root="$default_runtime_root"
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --name) need_value "$@"; name="$2"; shift 2 ;;
+        --name=*) name=${1#*=}; shift ;;
+        --tag) need_value "$@"; tag="$2"; shift 2 ;;
+        --tag=*) tag=${1#*=}; shift ;;
+        --resource-root) need_value "$@"; root="$2"; shift 2 ;;
+        --resource-root=*) root=${1#*=}; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) die "unknown path option: $1" ;;
+      esac
+    done
+    safe_dataset_id "$name" || die "unsafe or missing dataset ID: ${name:-missing}"
+    safe_tag "$tag" || die "unsafe or missing dataset tag: ${tag:-missing}"
+    verify_root "$root" || fail "dataset root failed integrity verification: $root"
+    dataset_dir="$root/members/$name/$tag"
+    verify_member "$dataset_dir" "$name" "$tag" "members/$name/$tag" || fail "dataset member is missing or incomplete: $dataset_dir"
+    printf '%s\n' "$dataset_dir"
+    ;;
+  *)
+    die "unknown command: $command"
+    ;;
+esac

@@ -83,19 +83,21 @@ LABEL org.opencontainers.image.title="Nextclade" \
       org.opencontainers.image.licenses="MIT"
 
 RUN set -eux; \
-    apk add --no-cache ca-certificates nginx; \
-    mkdir -p /usr/share/nextclade-taffish; \
+    apk add --no-cache bash ca-certificates jq nginx; \
+    mkdir -p /usr/local/libexec /usr/share/nextclade-taffish; \
     apk info -vv > /usr/share/nextclade-taffish/alpine-packages.txt
 
-COPY --from=cli-fetch /usr/local/bin/nextclade /usr/local/bin/nextclade
+COPY --from=cli-fetch /usr/local/bin/nextclade /usr/local/libexec/nextclade
 COPY --from=cli-fetch /usr/share/doc/nextclade-upstream /usr/share/doc/nextclade-upstream
 COPY --from=cli-fetch /tmp/cli-source.txt /usr/share/nextclade-taffish/cli-source.txt
 COPY --from=web-assets /usr/share/nextclade-web /usr/share/nextclade-web
+COPY docker/nextclade-launcher /usr/local/bin/nextclade
 COPY docker/nextclade-web /usr/local/bin/nextclade-web
+COPY docker/nextclade-datasets /usr/local/bin/nextclade-datasets
 COPY docker/nextclade-smoke /usr/local/bin/nextclade-smoke
 
 RUN set -eux; \
-    chmod 0755 /usr/local/bin/nextclade-web /usr/local/bin/nextclade-smoke; \
+    chmod 0755 /usr/local/bin/nextclade /usr/local/bin/nextclade-web /usr/local/bin/nextclade-datasets /usr/local/bin/nextclade-smoke; \
     ln -s nextclade /usr/local/bin/nextalign; \
     printf '%s\n' \
       "source_archive=https://github.com/nextstrain/nextclade/archive/refs/tags/${NEXTCLADE_VERSION}.tar.gz" \
@@ -110,6 +112,8 @@ RUN set -eux; \
     nextclade --version | grep -F "nextclade ${NEXTCLADE_VERSION}" >/dev/null; \
     nextclade --help | grep -F 'Run sequence analysis' >/dev/null; \
     nextclade-web --help | grep -F 'foreground browser service' >/dev/null; \
+    nextclade-datasets --help | grep -F 'version-pinned Nextclade datasets' >/dev/null; \
+    nextclade-datasets --version | grep -Fx 'nextclade-datasets 3.23.0-r2' >/dev/null; \
     grep -F '"commitHash": "'"${NEXTCLADE_COMMIT}"'"' /usr/share/nextclade-web/app.json >/dev/null
 
 ENV TAFFISH_ENV=TAFFISH \

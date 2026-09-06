@@ -1,6 +1,0 @@
-{
-  "artifact": "taf-nextclade-v3.23.0-r1",
-  "schema": "taffish.build/v1",
-  "source_sha256": "14430b6011f52286a529b34ce5f85639b044fa933f529f03cfb778104659196f",
-  "wrapper_sha256": "4efe10186c76522ee43a8f189f4d85949a399a2a125b39992edb9edb38d36616"
-}

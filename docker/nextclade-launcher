@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+if [ "${TAFFISH_NEXTCLADE_DATASET_MOUNTED:-0}" = 1 ]; then
+  if nextclade-datasets verify \
+    --resource-root /opt/taffish/datasets/nextclade >/dev/null; then
+    :
+  else
+    status=$?
+    echo "nextclade: mounted dataset root failed full integrity verification" >&2
+    exit "$status"
+  fi
+fi
+
+exec /usr/local/libexec/nextclade "$@"
