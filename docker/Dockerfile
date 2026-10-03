@@ -3,10 +3,10 @@ ARG ALPINE_IMAGE=alpine:3.22.5@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e
 FROM ${ALPINE_IMAGE} AS cli-fetch
 
 ARG TARGETARCH
-ARG NEXTCLADE_VERSION=3.23.0
-ARG NEXTCLADE_COMMIT=629ea8fb0cfe3165db13ddc75dab16d3c2292dbd
-ARG NEXTCLADE_AMD64_SHA256=4df814c6677554db392497d91001428d5d2add600ecfca5cd61e5116839cf532
-ARG NEXTCLADE_ARM64_SHA256=f86b5763b5295889ccc9eda2411f0167d2503868ff60f32c93f0d4b090a90e7a
+ARG NEXTCLADE_VERSION=3.24.0
+ARG NEXTCLADE_COMMIT=529db53e8f5b16d8a5d1161abd8b60ef04109817
+ARG NEXTCLADE_AMD64_SHA256=df74c89053fd9d5f914f0d26a006d13191dc13f66f61c4fd0dcae001278cb4a7
+ARG NEXTCLADE_ARM64_SHA256=c3f3c9ca5f6b61c1485f69abce095548bdbe36723f69288397935cdcc42c66ad
 ARG NEXTCLADE_LICENSE_SHA256=7840a71ecf07a2d68ddae05e3a0dfd1bd4770ffca08f4bd204dc341e40bb6261
 ARG NEXTCLADE_README_SHA256=3b19595f1e2b2fcb183eb3ce05aeb30b7e1a3f5b9513cb031be51fb4f59fb816
 
@@ -43,11 +43,11 @@ RUN set -eux; \
 
 FROM ${ALPINE_IMAGE} AS web-assets
 
-ARG NEXTCLADE_VERSION=3.23.0
-ARG NEXTCLADE_COMMIT=629ea8fb0cfe3165db13ddc75dab16d3c2292dbd
-ARG NEXTCLADE_WEB_SHA256=c4363d74b5216a0148c6452d2562fb3f24c71b832799fef8baf76f65073cdbee
+ARG NEXTCLADE_VERSION=3.24.0
+ARG NEXTCLADE_COMMIT=529db53e8f5b16d8a5d1161abd8b60ef04109817
+ARG NEXTCLADE_WEB_SHA256=e321818a3bdd38412a3bf62faf429ddd7124b077c752d18a9e844c6a6f70298b
 
-COPY docker/nextclade-web-3.23.0.tar.gz /tmp/nextclade-web.tar.gz
+COPY docker/nextclade-web-3.24.0.tar.gz /tmp/nextclade-web.tar.gz
 
 RUN set -eux; \
     echo "${NEXTCLADE_WEB_SHA256}  /tmp/nextclade-web.tar.gz" | sha256sum -c -; \
@@ -65,21 +65,21 @@ RUN set -eux; \
     grep -F 'function u(){return null}function u_disabled' "$1" >/dev/null; \
     find /usr/share/nextclade-web -type f -name '*.map' -delete; \
     test -s /usr/share/nextclade-web/index.html; \
-    test -s /usr/share/nextclade-web/_next/static/chunks/pages/_app-8e71f5f555f2f363.js; \
+    test -s /usr/share/nextclade-web/_next/static/chunks/pages/_app-963ff874e3b68999.js; \
     rm -f /tmp/nextclade-web.tar.gz
 
 FROM ${ALPINE_IMAGE}
 
-ARG NEXTCLADE_VERSION=3.23.0
-ARG NEXTCLADE_COMMIT=629ea8fb0cfe3165db13ddc75dab16d3c2292dbd
-ARG NEXTCLADE_SOURCE_SHA256=3c827b0650a7275a70561547cc0283d99c27b8b7ce5644c0dc7ecd2198de68a1
-ARG NEXTCLADE_WEB_SHA256=c4363d74b5216a0148c6452d2562fb3f24c71b832799fef8baf76f65073cdbee
+ARG NEXTCLADE_VERSION=3.24.0
+ARG NEXTCLADE_COMMIT=529db53e8f5b16d8a5d1161abd8b60ef04109817
+ARG NEXTCLADE_SOURCE_SHA256=6c6e9e7daf18fe655a227830483e62a806df2a506a01406eb49acecba00a940f
+ARG NEXTCLADE_WEB_SHA256=e321818a3bdd38412a3bf62faf429ddd7124b077c752d18a9e844c6a6f70298b
 
 LABEL org.opencontainers.image.title="Nextclade" \
       org.opencontainers.image.description="Nextclade CLI and official Nextclade Web client" \
       org.opencontainers.image.source="https://github.com/nextstrain/nextclade" \
-      org.opencontainers.image.version="3.23.0" \
-      org.opencontainers.image.revision="629ea8fb0cfe3165db13ddc75dab16d3c2292dbd" \
+      org.opencontainers.image.version="3.24.0" \
+      org.opencontainers.image.revision="529db53e8f5b16d8a5d1161abd8b60ef04109817" \
       org.opencontainers.image.licenses="MIT"
 
 RUN set -eux; \
@@ -95,6 +95,7 @@ COPY docker/nextclade-launcher /usr/local/bin/nextclade
 COPY docker/nextclade-web /usr/local/bin/nextclade-web
 COPY docker/nextclade-datasets /usr/local/bin/nextclade-datasets
 COPY docker/nextclade-smoke /usr/local/bin/nextclade-smoke
+COPY docker/fixtures /usr/share/nextclade-taffish/fixtures
 
 RUN set -eux; \
     chmod 0755 /usr/local/bin/nextclade /usr/local/bin/nextclade-web /usr/local/bin/nextclade-datasets /usr/local/bin/nextclade-smoke; \
@@ -102,10 +103,10 @@ RUN set -eux; \
     printf '%s\n' \
       "source_archive=https://github.com/nextstrain/nextclade/archive/refs/tags/${NEXTCLADE_VERSION}.tar.gz" \
       "source_archive_sha256=${NEXTCLADE_SOURCE_SHA256}" \
-      "web_artifact_workflow_run=https://github.com/nextstrain/nextclade/actions/runs/32247980559" \
-      "web_artifact_id=9363881538" \
+      "web_artifact_workflow_run=https://github.com/nextstrain/nextclade/actions/runs/36701820873" \
+      "web_artifact_id=11090603375" \
       "web_artifact_name=out" \
-      "web_artifact_github_digest=sha256:8070dcd4d6c0474cd44769995424c5158901616b1a5bab5f80c8987ab6e70d49" \
+      "web_artifact_github_digest=sha256:a315fba46857b6163152430c73d5cc61e74f8e1d44b5a7e0696f82e6fe231ba4" \
       "web_archive_sha256=${NEXTCLADE_WEB_SHA256}" \
       "web_local_adjustments=local asset URLs; Plausible telemetry disabled; source maps removed" \
       >> /usr/share/nextclade-taffish/cli-source.txt; \
@@ -113,7 +114,7 @@ RUN set -eux; \
     nextclade --help | grep -F 'Run sequence analysis' >/dev/null; \
     nextclade-web --help | grep -F 'foreground browser service' >/dev/null; \
     nextclade-datasets --help | grep -F 'version-pinned Nextclade datasets' >/dev/null; \
-    nextclade-datasets --version | grep -Fx 'nextclade-datasets 3.23.0-r2' >/dev/null; \
+    nextclade-datasets --version | grep -Fx 'nextclade-datasets 3.24.0-r1' >/dev/null; \
     grep -F '"commitHash": "'"${NEXTCLADE_COMMIT}"'"' /usr/share/nextclade-web/app.json >/dev/null
 
 ENV TAFFISH_ENV=TAFFISH \

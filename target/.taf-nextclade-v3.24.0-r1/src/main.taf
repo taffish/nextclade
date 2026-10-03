@@ -11,7 +11,7 @@ taf_nextclade_complete_root() {
     test -s "$taf_nextclade_root/TAFFISH_DATASET_INVENTORY.tsv" || return 1
     test -s "$taf_nextclade_root/TAFFISH_DATASET_READY" || return 1
     grep -F 'taffish.nextclade.dataset-root.v1' "$taf_nextclade_root/TAFFISH_DATASET_MANIFEST.json" >/dev/null || return 1
-    grep -F '"app_version": "3.23.0"' "$taf_nextclade_root/TAFFISH_DATASET_MANIFEST.json" >/dev/null || return 1
+    grep -F '"app_version": "3.24.0"' "$taf_nextclade_root/TAFFISH_DATASET_MANIFEST.json" >/dev/null || return 1
     taf_nextclade_count=0
     while IFS="$(printf '\t')" read -r taf_nextclade_id taf_nextclade_tag taf_nextclade_rel taf_nextclade_digest taf_nextclade_files taf_nextclade_bytes taf_nextclade_source taf_nextclade_license; do
         test "$taf_nextclade_id" = dataset_id && continue
@@ -58,9 +58,9 @@ if test -z "$taf_nextclade_install" && test "$taf_nextclade_auto" = 1; then
     else
         taf_nextclade_user_base="${XDG_DATA_HOME:-${HOME:-}/.local/share}"
         for taf_nextclade_candidate in \
-            "$taf_nextclade_user_base/taffish/datasets/nextclade/3.23.0" \
-            "/usr/local/share/taffish/datasets/nextclade/3.23.0" \
-            "/opt/taffish/datasets/nextclade/3.23.0"; do
+            "$taf_nextclade_user_base/taffish/datasets/nextclade/3.24.0" \
+            "/usr/local/share/taffish/datasets/nextclade/3.24.0" \
+            "/opt/taffish/datasets/nextclade/3.24.0"; do
             if test -e "$taf_nextclade_candidate"; then
                 taf_nextclade_data="$taf_nextclade_candidate"
                 break
@@ -86,5 +86,5 @@ fi
 
 export APPTAINERENV_TAFFISH_NEXTCLADE_WEB_LOG_FILE="${TAFFISH_NEXTCLADE_WEB_LOG_FILE:-}"
 
-<taf-app:container:ghcr.io/taffish/nextclade:3.23.0-r2$@[docker/podman: --init --env=TAFFISH_NEXTCLADE_WEB_LOG_FILE][docker: --user=$(id -u):$(id -g)][podman: --userns=keep-id --user=$(id -u):$(id -g)][docker/podman: $(if test -n "${taf_nextclade_install:-}"; then printf -- '--volume=%s:/dataset-install --env=TAFFISH_NEXTCLADE_DATASET_INSTALL_MOUNTED=1' "$taf_nextclade_install"; fi) $(if test -n "${taf_nextclade_data:-}"; then printf -- '--volume=%s:/opt/taffish/datasets/nextclade:ro --env=TAFFISH_NEXTCLADE_DATASET_MOUNTED=1' "$taf_nextclade_data"; fi)][apptainer: $(if test -n "${taf_nextclade_install:-}"; then printf -- '--bind=%s:/dataset-install --env=TAFFISH_NEXTCLADE_DATASET_INSTALL_MOUNTED=1' "$taf_nextclade_install"; fi) $(if test -n "${taf_nextclade_data:-}"; then printf -- '--bind=%s:/opt/taffish/datasets/nextclade:ro --env=TAFFISH_NEXTCLADE_DATASET_MOUNTED=1' "$taf_nextclade_data"; fi)]>
+<taf-app:container:ghcr.io/taffish/nextclade:3.24.0-r1$@[docker/podman: --init --env=TAFFISH_NEXTCLADE_WEB_LOG_FILE][docker: --user=$(id -u):$(id -g)][podman: --userns=keep-id --user=$(id -u):$(id -g)][docker/podman: $(if test -n "${taf_nextclade_install:-}"; then printf -- '--volume=%s:/dataset-install --env=TAFFISH_NEXTCLADE_DATASET_INSTALL_MOUNTED=1' "$taf_nextclade_install"; fi) $(if test -n "${taf_nextclade_data:-}"; then printf -- '--volume=%s:/opt/taffish/datasets/nextclade:ro --env=TAFFISH_NEXTCLADE_DATASET_MOUNTED=1' "$taf_nextclade_data"; fi)][apptainer: $(if test -n "${taf_nextclade_install:-}"; then printf -- '--bind=%s:/dataset-install --env=TAFFISH_NEXTCLADE_DATASET_INSTALL_MOUNTED=1' "$taf_nextclade_install"; fi) $(if test -n "${taf_nextclade_data:-}"; then printf -- '--bind=%s:/opt/taffish/datasets/nextclade:ro --env=TAFFISH_NEXTCLADE_DATASET_MOUNTED=1' "$taf_nextclade_data"; fi)]>
 nextclade ::*ARGV*::

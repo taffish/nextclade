@@ -1,4 +1,4 @@
-nextclade 3.23.0-r2
+nextclade 3.24.0-r1
 Purpose:
   Use the primary headless CLI for viral-genome analysis, or start the optional
   official Web client as a foreground static browser service.
@@ -30,7 +30,7 @@ Prepare one exact reusable dataset member:
   Installation needs network; later verify/path/analysis can be offline.
 
 Use a prepared dataset root:
-  root=/absolute/root/3.23.0
+  root=/absolute/root/3.24.0
   target=/opt/taffish/datasets/nextclade
   Read-only roots: use paths without whitespace, commas, colons or glob characters.
     TAFFISH_NEXTCLADE_DATASET_PATH="$root" TAFFISH_CONTAINER_BACKEND=BACKEND \
@@ -77,7 +77,7 @@ Immediate notes:
   For CLI paths with spaces, preserve literal quotes, e.g. '"input file.fasta"'.
   Latest/network-selected datasets can change. Record an exact tag and use
   --input-dataset for reproducible work.
-  A bare reference omits dataset-specific annotation, QC, clades, and placement.
+  Patterns need pathogen.json + tree; Web markers: choose Relative to Parent.
 
 Key outputs:
   --output-all writes aligned FASTA, CSV/TSV, JSON, translations and tree files.

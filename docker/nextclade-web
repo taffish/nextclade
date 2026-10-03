@@ -93,8 +93,8 @@ while [ "$#" -gt 0 ]; do
       ;;
     --log-file=*) log_file="${1#*=}"; log_file_explicit=1; shift ;;
     --version)
-      echo "Nextclade Web 3.23.0"
-      echo "upstream commit 629ea8fb0cfe3165db13ddc75dab16d3c2292dbd"
+      echo "Nextclade Web 3.24.0"
+      echo "upstream commit 529db53e8f5b16d8a5d1161abd8b60ef04109817"
       exit 0
       ;;
     -h|--help)
@@ -157,6 +157,7 @@ if [ "$log_file_explicit" -eq 1 ] && [ -z "$log_file" ]; then
 fi
 
 runtime_dir="$(mktemp -d /tmp/nextclade-web.XXXXXX)"
+session_id="${runtime_dir##*/}"
 if [ "$log_file_explicit" -eq 0 ]; then
   log_file="${runtime_dir}/http.log"
 fi
@@ -182,6 +183,17 @@ owned_group_alive() {
   kill -0 "-$service_pgid" 2>/dev/null
 }
 
+owned_nginx_alive() {
+  # The supervisor may stay alive while nginx retries an occupied listen port.
+  # Its group alone does not prove that this session owns a serving nginx.
+  owned_nginx_pid=$(sed -n '1p' "${runtime_dir}/nginx.pid" 2>/dev/null || true)
+  positive_pid "$owned_nginx_pid" || return 1
+  [ "$service_group_owned" -eq 1 ] || return 1
+  owned_nginx_group=$(awk '{print $5}' "/proc/$owned_nginx_pid/stat" 2>/dev/null || true)
+  [ "$owned_nginx_group" = "$service_pgid" ] || return 1
+  kill -0 "$owned_nginx_pid" 2>/dev/null
+}
+
 stop_delay() {
   if positive_pid "$delay_pid" && kill -0 "$delay_pid" 2>/dev/null; then
     kill -TERM "$delay_pid" 2>/dev/null || true
@@ -191,6 +203,26 @@ stop_delay() {
 }
 
 stop_service() {
+  # INT can arrive after setsid starts but before the parent records its PID
+  # and owned group. Recover only from this session's private handshake file;
+  # never wait indefinitely for a live launcher with an unregistered group.
+  if [ "$service_group_owned" -ne 1 ] && [ -n "${service_pid_file:-}" ]; then
+    recover_count=0
+    while [ "$recover_count" -lt 40 ]; do
+      recovered_pid=$(sed -n '1p' "$service_pid_file" 2>/dev/null || true)
+      if positive_pid "$recovered_pid"; then
+        recovered_group=$(awk '{print $5}' "/proc/$recovered_pid/stat" 2>/dev/null || true)
+        if [ "$recovered_group" = "$recovered_pid" ]; then
+          service_pid="$recovered_pid"
+          service_pgid="$recovered_pid"
+          service_group_owned=1
+          break
+        fi
+      fi
+      recover_count=$((recover_count + 1))
+      sleep 0.05
+    done
+  fi
   if owned_group_alive; then
     kill -TERM "-$service_pgid" 2>/dev/null || true
     count=0
@@ -203,6 +235,17 @@ stop_service() {
     fi
   elif positive_pid "$service_pid" && kill -0 "$service_pid" 2>/dev/null; then
     kill -TERM "$service_pid" 2>/dev/null || true
+  fi
+  if positive_pid "$service_launcher_pid" && kill -0 "$service_launcher_pid" 2>/dev/null; then
+    kill -TERM "$service_launcher_pid" 2>/dev/null || true
+    launcher_count=0
+    while kill -0 "$service_launcher_pid" 2>/dev/null && [ "$launcher_count" -lt 50 ]; do
+      launcher_count=$((launcher_count + 1))
+      sleep 0.1
+    done
+    if kill -0 "$service_launcher_pid" 2>/dev/null; then
+      kill -KILL "$service_launcher_pid" 2>/dev/null || true
+    fi
   fi
   if positive_pid "$service_pid"; then
     wait "$service_pid" >/dev/null 2>&1 || true
@@ -344,6 +387,13 @@ http {
       return 200 'nextclade-web\n';
     }
 
+    location = /_taf_ready {
+      access_log off;
+      default_type text/plain;
+      add_header Cache-Control no-store;
+      return 200 '${session_id}\n';
+    }
+
     location / {
       try_files \$uri \$uri.html \$uri/ /index.html;
     }
@@ -366,6 +416,9 @@ setsid sh -c '
 ' sh "$service_pid_file" "$service_status_file" \
   nginx -e stderr -c "$nginx_config" -g 'daemon off;' >"$log_file" 2>&1 &
 service_launcher_pid="$!"
+if [ "${NEXTCLADE_WEB_TEST_PID_RECORD_DELAY:-0}" = 1 ]; then
+  sleep 3
+fi
 count=0
 while [ ! -s "$service_pid_file" ] && [ "$count" -lt 40 ]; do
   count=$((count + 1))
@@ -392,7 +445,7 @@ if [ "$actual_pgid" != "$service_pid" ]; then
 fi
 service_group_owned=1
 
-probe_url="http://127.0.0.1:${port}/_taf_health"
+probe_url="http://127.0.0.1:${port}/_taf_ready"
 elapsed=0
 while [ "$elapsed" -lt "$startup_timeout" ]; do
   if [ -s "$service_status_file" ] || ! owned_group_alive; then
@@ -403,8 +456,10 @@ while [ "$elapsed" -lt "$startup_timeout" ]; do
     tail -n 40 "$log_file" >&2 || true
     exit 1
   fi
-  if response="$(wget -qO- -T 1 "$probe_url" 2>/dev/null)" && \
-     [ "$response" = "nextclade-web" ] && owned_group_alive; then
+  if owned_nginx_alive && \
+     response="$(wget -qO- -T 1 "$probe_url" 2>/dev/null)" && \
+     [ "$response" = "$session_id" ] && \
+     [ ! -s "$service_status_file" ] && owned_group_alive && owned_nginx_alive; then
     echo
     echo "Nextclade Web is ready."
     case "$critical_test" in

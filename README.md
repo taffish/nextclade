@@ -9,20 +9,24 @@ Package identity:
 - name: `nextclade`
 - command: `taf-nextclade`
 - kind: `tool`
-- version: `3.23.0-r2`
+- version: `3.24.0-r1`
 - TAFFISH app license: Apache-2.0
 - upstream license: MIT
 - native platforms: `linux/amd64`, `linux/arm64`
-- upstream release: [3.23.0](https://github.com/nextstrain/nextclade/releases/tag/3.23.0)
-- upstream commit: `629ea8fb0cfe3165db13ddc75dab16d3c2292dbd`
+- upstream release: [3.24.0](https://github.com/nextstrain/nextclade/releases/tag/3.24.0)
+- upstream commit: `529db53e8f5b16d8a5d1161abd8b60ef04109817`
 
-This same-upstream successor fixes the published `3.23.0-r1` Web helper on a
-read-only Apptainer SIF. Alpine Nginx otherwise tries to create its error log
-and request-body/proxy temporary directories below `/var/lib/nginx`. Release 2
-places every Nginx runtime write in a unique `/tmp/nextclade-web.*` directory,
-uses stderr for the error log, and supervises the owned process group. It also
-adds a version-pinned reusable dataset helper and wrapper-managed read-only
-dataset mounts. Upstream software identity remains 3.23.0.
+This upstream update advances both CLI and Web from 3.23.0 to 3.24.0. It retains
+the previous release's read-only-SIF-safe Web helper, supervised foreground
+service, and personal/site dataset preparation and read-only reuse interfaces.
+Nginx runtime writes remain in unique `/tmp/nextclade-web.*` directories.
+
+Version 3.24.0 adds named mutation patterns and their Web markers, and fixes the
+last position in SNP-cluster ranges in CSV/TSV. Pattern detection requires both
+`mutationPatterns` in `pathogen.json` and a reference tree; it reports patterns
+without changing QC scores. In Web, select mutations relative to **Parent** to
+see these markers. Existing datasets without pattern definitions are unaffected.
+See the [official release notes](https://github.com/nextstrain/nextclade/releases/tag/3.24.0).
 
 ## Installation
 
@@ -30,7 +34,7 @@ After this release is published and present in the refreshed local Hub index:
 
 ```sh
 taf update
-taf install nextclade 3.23.0-r2
+taf install nextclade 3.24.0-r1
 ```
 
 Unpublished checkout testing uses the generated target wrapper described below;
@@ -47,7 +51,7 @@ the presence of a local candidate image does not mean this release is published.
 - `nextclade-smoke`: packaging and runtime test helper
 
 The Web assets came from upstream workflow run
-[`32247980559`](https://github.com/nextstrain/nextclade/actions/runs/32247980559)
+[`36701820873`](https://github.com/nextstrain/nextclade/actions/runs/36701820873)
 for the pinned commit. Packaging rewrites official-site asset URLs to the local
 service, disables Plausible analytics, and removes source maps. It does not
 replace the upstream analysis code or visible UI.
@@ -107,6 +111,7 @@ Nextclade datasets form an evolving selectable family; the whole catalog is
 not one stable scientific resource. The smallest reusable unit used here is an
 explicit dataset ID at an immutable dataset tag. `nextclade-datasets` never
 chooses a pathogen, resolves “latest”, or downloads the complete family.
+The moving `latest` and `unreleased` selectors are rejected locally.
 
 Prepare one member in the standard personal root:
 
@@ -127,7 +132,7 @@ under:
 
 ```text
 ${XDG_DATA_HOME:-$HOME/.local/share}/taffish/datasets/nextclade/
-  3.23.0/members/<dataset-id>/<dataset-tag>/
+  3.24.0/members/<dataset-id>/<dataset-tag>/
 ```
 
 Interrupted or incomplete members are not advertised as ready. A root manifest
@@ -141,8 +146,8 @@ taf-nextclade nextclade-datasets verify
 taf-nextclade nextclade-datasets path --name DATASET_ID --tag DATASET_TAG
 ```
 
-The standard personal root, `/usr/local/share/taffish/datasets/nextclade/3.23.0`,
-and `/opt/taffish/datasets/nextclade/3.23.0` are discovered in that order and
+The standard personal root, `/usr/local/share/taffish/datasets/nextclade/3.24.0`,
+and `/opt/taffish/datasets/nextclade/3.24.0` are discovered in that order and
 mounted read-only at `/opt/taffish/datasets/nextclade`. Set
 `TAFFISH_NEXTCLADE_DATASET_PATH` to select another complete version root, or
 `TAFFISH_NEXTCLADE_DATASET_AUTO_MOUNT=0` to disable discovery. The explicit
@@ -157,21 +162,26 @@ changing argv, help, exit/signal behavior, or machine-readable stdout. Pass the
 container path printed by `nextclade-datasets path` to
 `nextclade run --input-dataset`.
 
+Prepared roots are app-version scoped. A 3.23.0 prepared root is not silently
+relabelled as 3.24.0: keep it for the older wrapper, or prepare the same exact
+upstream ID/tag into the new version root. Explicit upstream `--input-dataset`
+remains available for independently preserved ordinary dataset directories.
+
 Automatic mounting is preferred because the app supplies both the read-only
 bind and the integrity marker. If site policy requires manual runtime binds,
 disable discovery and preserve the same preflight explicitly:
 
 ```sh
 TAFFISH_NEXTCLADE_DATASET_AUTO_MOUNT=0 \
-TAFFISH_DOCKER_RUN_ARGS="-v /host/root/3.23.0:/opt/taffish/datasets/nextclade:ro -e TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
+TAFFISH_DOCKER_RUN_ARGS="-v /host/root/3.24.0:/opt/taffish/datasets/nextclade:ro -e TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
 TAFFISH_CONTAINER_BACKEND=docker taf-nextclade nextclade-datasets verify
 
 TAFFISH_NEXTCLADE_DATASET_AUTO_MOUNT=0 \
-TAFFISH_PODMAN_RUN_ARGS="-v /host/root/3.23.0:/opt/taffish/datasets/nextclade:ro -e TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
+TAFFISH_PODMAN_RUN_ARGS="-v /host/root/3.24.0:/opt/taffish/datasets/nextclade:ro -e TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
 TAFFISH_CONTAINER_BACKEND=podman taf-nextclade nextclade-datasets verify
 
 TAFFISH_NEXTCLADE_DATASET_AUTO_MOUNT=0 \
-TAFFISH_APPTAINER_RUN_ARGS="--bind /host/root/3.23.0:/opt/taffish/datasets/nextclade:ro --env TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
+TAFFISH_APPTAINER_RUN_ARGS="--bind /host/root/3.24.0:/opt/taffish/datasets/nextclade:ro --env TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
 TAFFISH_CONTAINER_BACKEND=apptainer taf-nextclade nextclade-datasets verify
 ```
 
@@ -207,17 +217,16 @@ Important resource limits:
 
 | Capability | Docker | Podman | Apptainer | Boundary |
 | --- | --- | --- | --- | --- |
-| CLI and exact offline smoke | validated | validated | validated, actual read-only SIF | Final native amd64 receipts cover all three; native arm64 Docker is also validated. |
+| CLI and exact offline smoke | supported | supported | supported, read-only SIF | Current-candidate validation status is recorded in release.md. |
 | Prepared dataset install | automatic read-write bind from `TAFFISH_NEXTCLADE_DATASET_INSTALL_ROOT` | same | same | Host directory must already exist and be writable; helper confirms an actual bind for `/dataset-install`. |
 | Prepared dataset reuse | automatic read-only bind | automatic read-only bind | automatic read-only bind | Complete personal/site/override version root only. |
 | Web service | loopback `-p` mapping | loopback `-p` mapping | shared host network, no `-p` | Foreground helper; no authentication/TLS; keep loopback-only and choose an unused site-allowed port. |
 
-Final validation covers native amd64 Linux Docker, rootless Podman, and
-Apptainer, plus native arm64 Docker, with both direct smoke and real generated
-wrapper tests. Arm64 Podman/Apptainer were not separately validated; there is
-no claim of an all-platform/backend Cartesian product. Podman requires a
-working host-side init binary for `--init`; the validation host's maintainer
-supplied catatonit before the final tests. No backend exception is used.
+This candidate passed native amd64 Linux Docker, rootless Podman, and
+Apptainer, plus native arm64 Docker, with direct smoke and generated-wrapper
+tests. There is no claim of an all-platform/backend Cartesian product. Podman
+requires a working host-side init binary for `--init`. See release.md for the
+actual evidence of this candidate, not the previous release's receipts.
 
 ## Browser Interface
 
@@ -246,11 +255,15 @@ TAFFISH_CONTAINER_BACKEND=apptainer \
 
 The helper prints starting status, URL, SSH tunnel, Ctrl-C instruction, and log
 path before a blocking child starts, then prints ready only after the owned
-Nginx process is alive and its health endpoint answers. It supervises that
+Nginx process belongs to this session and its readiness endpoint returns this
+session's unique identity. A pre-existing service on the same port cannot make
+a failed second session report ready. It supervises that
 process continuously; a critical exit names the component, shows a log tail,
 cleans up, and exits nonzero. Ctrl-C and TERM use bounded process-group cleanup
 with statuses 130 and 143. During that cleanup, further INT/TERM/HUP signals are
 ignored so they cannot interrupt the final process cleanup and stopped marker.
+An early-interrupt cleanup recovers the owned PID/group from the private
+handshake before waiting, including the launch-to-registration window.
 For a remote host, keep the published port on
 127.0.0.1 and use the printed SSH tunnel. Apptainer shares the host network, so
 the selected port must also satisfy site policy and firewall rules. Browser
@@ -288,10 +301,10 @@ Bash to the host would not supply this container dependency.
 ### Local source-checkout service testing
 
 Installed users should use the `taf-nextclade` commands above. In a source
-checkout, current TAFFISH 0.11.0 `taf run` is not a safe long-service entry:
-its generator path buffers the startup card, Ctrl-C exits through the
-TAFFISH/SBCL interrupt handler instead of 130, and the attached container can
-remain running. This is a TAFFISH core boundary, not a helper failure.
+checkout, use the generated wrapper for long-running services. The previous
+3.23.0-r2 audit observed buffered startup output and incomplete interrupt
+cleanup with TAFFISH 0.11.0 `taf run`; this update does not re-qualify that core
+entry path. Its service evidence is for generated wrappers, not `taf run`.
 
 Build the generated wrapper and run that wrapper directly for unpublished
 local testing:
@@ -300,7 +313,7 @@ local testing:
 taf build
 TAFFISH_DOCKER_RUN_ARGS="-p 127.0.0.1:8765:8000" \
   TAFFISH_CONTAINER_BACKEND=docker \
-  target/taf-nextclade-v3.23.0-r2 \
+  target/taf-nextclade-v3.24.0-r1 \
   nextclade-web --port 8000 --host-port 8765
 ```
 
@@ -333,7 +346,7 @@ upstream contracts tied to both the pinned program and selected dataset.
 | `/tmp/nextclade-web.*` | Web helper/Nginx | one service | unique directory; removed on normal, signal, startup, or critical exit |
 | `TAFFISH_NEXTCLADE_WEB_LOG_FILE` / explicit `--log-file FILE` | Web helper/Nginx | caller-selected | persistent wrapper-bound output; parent must be writable |
 | `/tmp/nextclade-dataset-*` | dataset helper | one command | catalog/log scratch; removed by trap |
-| `/dataset-install/3.23.0` | dataset helper | persistent | only an actual explicit writable host bind |
+| `/dataset-install/3.24.0` | dataset helper | persistent | only an actual explicit writable host bind |
 | requested CLI outputs/workdir | Nextclade CLI | persistent | caller's wrapper-bound working directory |
 | image root (`/opt`, `/usr`, `/var/lib/nginx`) | nobody at runtime | immutable | no runtime chmod/chown or write dependency |
 
@@ -342,7 +355,7 @@ Network is required for `dataset list|get`, helper network installation,
 preserved local input and dataset is offline-safe. The manifest smoke does not
 perform implicit network access.
 
-Upstream maintains paired CLI tags (`3.23.0`) and Web tags (`web-3.23.0`) for
+Upstream maintains paired CLI tags (`3.24.0`) and Web tags (`web-3.24.0`) for
 the same stable commit. The watch rule intentionally filters `web-*` and strips
 that prefix before version comparison, preventing unrelated mixed-tag lines from
 masking future stable updates while tracking the browser surface packaged here.
@@ -379,6 +392,9 @@ the dominant payloads.
 - browser cannot connect: wait for ready and match host/container port mapping.
 - missing amino-acid, clade, QC, or placement results: use the appropriate
   complete pathogen dataset instead of a bare reference.
+- custom Web tree fails in the diversity panel: retain the Auspice
+  `meta.genome_annotations.nuc` genome map, even when there are no protein CDSs.
+  A minimal tree accepted by the CLI need not contain all Web display metadata.
 
 ## Testing Boundary
 
@@ -391,23 +407,17 @@ run in a fresh offline container with a read-only image root and only its
 documented `/tmp` and workdir writes. Docker/Podman resource binds and a real
 read-only SIF must be tested separately through generated wrappers.
 
-The final `3.23.0-r2` runtime passed all 17 command-existence entries and 10
-exact manifest tests independently in fresh offline Docker/Podman containers,
-read-only Docker/Podman proxies, and an actual read-only amd64 SIF. Native
-arm64 Docker passed its normal and read-only matrices too. Real generated
-wrappers separately passed actual writable installation binds, read-only
-reuse (including an attempted write rejected by the mounted filesystem),
-integrity failures, argument ordering, whitespace log paths, and foreground
-service lifecycle tests. These final receipts supersede the intermediate
-argument workaround and invalid exit-127 read-only test; neither is reused.
+The 3.24.0 manifest adds a synthetic reference-tree mutation-pattern test with
+four known substitutions, one cluster, JSON/TSV output and the no-tree boundary.
+All 17 exist entries and 13 tests must be rerun against this exact candidate;
+historical 3.23.0-r2 PASS does not qualify this update. Current receipts, image
+identities and remaining boundaries are recorded in release.md.
 
-The official Web client loaded a purely synthetic local fixture, completed
-its tiny path, opened a language menu with a real pointer, and exported a
-nonempty JSON result. Layout was visually checked at 1280x720 and 1440x900.
-This is a direct browser app, not a noVNC desktop: window-manager, desktop
-geometry and noVNC chrome checks are not applicable. Tree/peptide exports
-requiring annotation or a tree were not qualified by this bare-reference
-fixture; the upstream assets and commands remain packaged.
+Browser qualification uses synthetic local inputs, real pointer interaction,
+and a nonempty downloaded result. This is a direct browser app, not a noVNC
+desktop: window-manager, desktop geometry and noVNC chrome checks are N/A.
+Exports needing annotation are not qualified by a bare-reference fixture;
+the upstream assets and commands remain packaged.
 
 Resource transaction tests use a tiny prepared member, not a production
 catalog download or a shared multi-user installation. Full production dataset
