@@ -2,7 +2,7 @@
 set -eu
 umask 022
 
-app_version=3.24.0
+app_version=3.25.0
 schema=taffish.nextclade.dataset-root.v1
 member_schema=taffish.nextclade.dataset-member.v1
 default_server=https://data.clades.nextstrain.org/v3
@@ -20,7 +20,7 @@ Usage:
   nextclade-datasets path --name ID --tag TAG [--resource-root ROOT]
 
 Install options:
-  --resource-root ROOT  Prepared version root; default /dataset-install/3.24.0
+  --resource-root ROOT  Prepared version root; default /dataset-install/3.25.0
   --server URL          Dataset server; default https://data.clades.nextstrain.org/v3
   --source-dir DIR      Install a user-supplied dataset directory without network
   --dry-run             Resolve and report; do not download or write
@@ -333,9 +333,11 @@ resolve_catalog_member() {
   count=$(jq -r 'length' "$catalog_file")
   [ "$count" = 1 ] || fail "selector resolved to $count datasets; use an exact dataset ID and compatible tag"
   canonical=$(jq -r '.[0].path // empty' "$catalog_file")
-  resolved_tag=$(jq -r '.[0].version.tag // empty' "$catalog_file")
   safe_dataset_id "$canonical" || fail "catalog returned an unsafe dataset ID"
-  [ "$resolved_tag" = "$tag" ] || fail "catalog resolved a different tag: ${resolved_tag:-missing}"
+  # dataset list --tag filters members but retains .version as the catalog's
+  # latest release. Resolve against the available versions, never that default.
+  jq -e --arg tag "$tag" 'any(.[0].versions[]?; .tag == $tag)' \
+    "$catalog_file" >/dev/null || fail "requested tag is absent from catalog versions: $tag"
   printf '%s\n' "$canonical"
 }
 
@@ -384,7 +386,11 @@ case "$command" in
     safe_backend_path "$root" || die "resource root contains unsupported backend characters: $root"
     catalog_file=$(mktemp /tmp/nextclade-dataset-catalog.XXXXXX)
     log_file=$(mktemp /tmp/nextclade-dataset-log.XXXXXX)
-    trap 'rm -f "$catalog_file" "$log_file"' EXIT INT TERM
+    trap 'rm -f "$catalog_file" "$log_file"' EXIT
+    # Signals must exit through the EXIT trap, never return to the transaction.
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
     if [ -n "$source_dir" ]; then
       [ -d "$source_dir" ] || die "--source-dir is not a directory: $source_dir"
       source_dir=$(canonical_dir "$source_dir")
@@ -455,36 +461,64 @@ case "$command" in
     index_started=0
     complete=0
     cleanup_install() {
-      rm -rf "$stage"
+      cleanup_status=$?
+      # A rollback is one non-reentrant operation. In particular, a second
+      # signal or EXIT must not remove the member we have just restored.
+      trap - EXIT
+      trap '' INT TERM HUP
+      set +e
+      cleanup_failed=0
       if [ "$complete" -eq 0 ]; then
         if [ "$promoted" -eq 1 ] && [ -e "$target" ]; then
-          rm -rf "$target"
+          rm -rf "$target" || cleanup_failed=1
         fi
-        if [ -n "$backup" ] && [ -e "$backup" ] && [ ! -e "$target" ]; then
-          mkdir -p "$(dirname "$target")"
-          mv "$backup" "$target" 2>/dev/null || true
+        if [ -n "$backup" ] && [ -e "$backup" ]; then
+          if [ ! -e "$target" ]; then
+            mv "$backup" "$target" || cleanup_failed=1
+          else
+            cleanup_failed=1
+          fi
         fi
         if [ "$promoted" -eq 1 ] || [ "$index_started" -eq 1 ]; then
           for marker in TAFFISH_DATASET_MANIFEST.json TAFFISH_DATASET_INVENTORY.tsv TAFFISH_DATASET_READY; do
             if [ -f "$lock/$marker" ]; then
-              rm -f "$root/$marker"
-              cp -p "$lock/$marker" "$root/$marker"
+              # Preserve the recovery copy until every rollback operation has
+              # succeeded; never silently discard it on an I/O/permission error.
+              if rm -f "$root/$marker"; then
+                cp -p "$lock/$marker" "$root/$marker" || cleanup_failed=1
+              else
+                cleanup_failed=1
+              fi
             else
-              rm -f "$root/$marker"
+              rm -f "$root/$marker" || cleanup_failed=1
             fi
           done
         fi
+      elif [ -n "$backup" ] && [ -e "$backup" ]; then
+        rm -rf "$backup" || cleanup_failed=1
       fi
+      if [ "$cleanup_failed" -ne 0 ]; then
+        echo "nextclade-datasets: transaction cleanup failed; recovery files and lock retained at $root" >&2
+        echo "nextclade-datasets: stop all writers; preserve this root and inspect its .backup.*, .staging.* and .taffish-install.lock before recovery" >&2
+        rm -f "$catalog_file" "$log_file"
+        exit 74
+      fi
+      rm -rf "$stage" || cleanup_failed=1
       rm -f "$root/.taffish/member-manifests.$$" \
         "$root/.taffish/root-manifest.$$" \
-        "$root/.taffish/root-inventory.$$"
+        "$root/.taffish/root-inventory.$$" || cleanup_failed=1
       rm -f "$lock/TAFFISH_DATASET_MANIFEST.json" \
         "$lock/TAFFISH_DATASET_INVENTORY.tsv" \
-        "$lock/TAFFISH_DATASET_READY"
-      rmdir "$lock" 2>/dev/null || true
+        "$lock/TAFFISH_DATASET_READY" || cleanup_failed=1
+      rmdir "$lock" || cleanup_failed=1
       rm -f "$catalog_file" "$log_file"
+      [ "$cleanup_failed" -eq 0 ] || {
+        echo "nextclade-datasets: temporary cleanup incomplete at $root; inspect before retrying" >&2
+        exit 74
+      }
+      exit "$cleanup_status"
     }
-    trap cleanup_install EXIT INT TERM
+    trap cleanup_install EXIT
     ensure_member_parent "$root" "$canonical"
     for marker in TAFFISH_DATASET_MANIFEST.json TAFFISH_DATASET_INVENTORY.tsv TAFFISH_DATASET_READY; do
       if [ -e "$root/$marker" ] || [ -L "$root/$marker" ]; then
@@ -561,13 +595,15 @@ case "$command" in
     find "$stage/data" -type d -exec chmod 0755 {} +
     find "$stage/data" -type f -exec chmod 0644 {} +
     mkdir -p "$(dirname "$target")"
-    mv "$stage/data" "$target"
+    # Arm rollback before rename: a pending signal may be delivered immediately
+    # after mv succeeds, before the next shell assignment can run.
     promoted=1
+    mv "$stage/data" "$target"
     index_started=1
     write_root_index "$root"
     verify_root "$root" || fail "prepared root failed final integrity verification"
-    [ -z "$backup" ] || rm -rf "$backup"
-    backup=
+    # Commit before dropping the backup. EXIT now preserves the verified new
+    # tree, including a signal arriving during removal of the old backup.
     complete=1
     echo "nextclade-datasets: installed $canonical@$tag"
     echo "nextclade-datasets: dataset $target"
