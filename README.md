@@ -9,19 +9,25 @@ Package identity:
 - name: `nextclade`
 - command: `taf-nextclade`
 - kind: `tool`
-- version: `3.25.0-r1`
+- version: `3.25.1-r1`
 - TAFFISH app license: Apache-2.0
 - upstream license: MIT
 - native platforms: `linux/amd64`, `linux/arm64`
-- upstream release: [3.25.0](https://github.com/nextstrain/nextclade/releases/tag/3.25.0)
-- upstream commit: `d415f3c396fabc7f792c676d60ac9b50236830c1`
+- upstream release: [3.25.1](https://github.com/nextstrain/nextclade/releases/tag/3.25.1)
+- upstream commit: `4316e4141a83d7111829fb1c610dc89157267151`
 
-This upstream update advances both CLI and Web from 3.24.0 to 3.25.0. It retains
+This upstream update advances both CLI and Web from 3.25.0 to 3.25.1. It retains
 the previous release's read-only-SIF-safe Web helper, supervised foreground
 service, and personal/site dataset preparation and read-only reuse interfaces.
 Nginx runtime writes remain in unique `/tmp/nextclade-web.*` directories.
 
-Version 3.25.0 adds the optional `--penalty-gap-enter-cds` alignment parameter
+Version 3.25.1 updates upstream TLS trust dependencies to distrust compromised
+eMudhra intermediates and updates upstream development/build dependencies.
+It does not change the analysis algorithms or the Web interaction surface.
+The official native CLI and Web build are both refreshed; this package does
+not disable TLS verification or apply an upstream algorithm patch.
+
+Version 3.25.0 introduced the optional `--penalty-gap-enter-cds` alignment parameter
 (default 0), warnings for loss of an unambiguous ATG start codon, collapsible
 Web tree/export sidebars, and an Auspice JSON download on the tree page.
 Choose a nonzero alignment penalty deliberately; this app does not change the
@@ -29,7 +35,7 @@ upstream default. The start-codon warnings also appear in JSON/NDJSON/CSV/TSV
 and in the Web sequence-name tooltip. Ambiguous codons are not called lost.
 Mutation patterns introduced in 3.24 remain available; they require
 `mutationPatterns` in `pathogen.json` and a reference tree.
-See the [official release notes](https://github.com/nextstrain/nextclade/releases/tag/3.25.0).
+See the [official release notes](https://github.com/nextstrain/nextclade/releases/tag/3.25.1).
 
 ## Installation
 
@@ -37,7 +43,7 @@ After this release is published and present in the refreshed local Hub index:
 
 ```sh
 taf update
-taf install nextclade 3.25.0-r1
+taf install nextclade 3.25.1-r1
 ```
 
 Unpublished checkout testing uses the generated target wrapper described below;
@@ -54,7 +60,7 @@ the presence of a local candidate image does not mean this release is published.
 - `nextclade-smoke`: packaging and runtime test helper
 
 The Web assets came from upstream workflow run
-[`38405743562`](https://github.com/nextstrain/nextclade/actions/runs/38405743562)
+[`39700382824`](https://github.com/nextstrain/nextclade/actions/runs/39700382824)
 for the pinned commit. Packaging rewrites official-site asset URLs to the local
 service, disables Plausible analytics, and removes source maps. It does not
 replace the upstream analysis code or visible UI.
@@ -135,8 +141,18 @@ under:
 
 ```text
 ${XDG_DATA_HOME:-$HOME/.local/share}/taffish/datasets/nextclade/
-  3.25.0/members/<dataset-id>/<dataset-tag>/
+  3.25.1/members/<dataset-id>/<dataset-tag>/
 ```
+
+Every install first verifies the entire existing resource root under its lock,
+using the same version, manifest, inventory and member-integrity checks as
+`verify` and mounted CLI use. Unindexed members, stray payload files and symlinks
+inside the member tree are rejected. An empty root may be initialized; an
+invalid nonempty root is never silently relabelled or reindexed, including when
+adding a new member or using `--force`. Preserve an invalid root and restore its
+exact known-good contents, or install selected members into a fresh root.
+`--force` replaces a member only in a fully verified root; it is not a repair
+override for a damaged library.
 
 Interrupted or incomplete members are not advertised as ready. A root manifest
 and TSV inventory describe every complete member; `--force` uses a rollback
@@ -155,19 +171,34 @@ before inspecting or retrying. A signal handled before cleanup returns 130 or
 and root metadata; after that point, the verified replacement is retained.
 Cleanup runs once and ignores INT/TERM/HUP, so a signal arriving during cleanup
 of an already committed installation can still leave a successful exit 0.
-Other installed members are not replaced.
+Other installed members are not replaced. Lock cleanup is armed before lock
+acquisition; INT/TERM/HUP are deferred only across the acquisition/ownership
+handoff. A handled signal in that earliest window removes this install's lock,
+but never another writer's lock. Empty initialization directories may remain
+and are safe to reuse on retry.
 Verify the root, then repeat the same install command (including `--force` if
 replacement is intended). A successful repeated install without `--force`
 leaves complete members unchanged.
+
+Each transaction exclusively creates a private `0700` lock directory and keeps
+its staging, index temporaries and replacement backup inside that directory.
+Cleanup checks the lock's device/inode identity and refuses a replaced directory
+or symlink. Legacy `.staging.*`, `.backup.*` and nonempty `.taffish` paths are
+not owned by a new install: installation fails and preserves them for inspection.
+Live and dangling control-directory symlinks are rejected, never followed for
+cleanup. Do not delete old recovery paths merely because their PID matches a
+new container process.
 
 If cleanup itself fails because of storage or permissions, the helper exits 74
 and preserves the transaction lock and available recovery files. Do not blindly
 delete `.taffish-install.lock` or `.backup.*`. Stop all writers, preserve a copy
 of the whole root, and have its owner inspect the exact transaction: an existing
-`.backup.<pid>.dataset` is the old member; the lock contains its previous root
+`.taffish-install.lock/backup` is the old member; the lock contains its previous root
 manifest/inventory/ready markers. After resolving the underlying error, restore
 that exact member to its original ID/tag path and the saved root markers, then
-verify the whole root before removing only that transaction's lock/staging.
+verify the whole root before removing only that inspected transaction's lock
+(including its `staging` and `index` children). Legacy recovery paths remain
+separate and must not be removed by a newer transaction.
 Do not overwrite an uninspected member. Alternatively preserve the failed root
 and install the selected exact members into a fresh version root from known
 sources. A stale lock is intentionally not removed automatically.
@@ -177,8 +208,8 @@ preserve-and-inspect recovery boundary applies; this helper is not a durable
 database journal. It does not promise atomicity against arbitrary disk failure
 or uninterrupted readers during a multi-file root-index update.
 
-The standard personal root, `/usr/local/share/taffish/datasets/nextclade/3.25.0`,
-and `/opt/taffish/datasets/nextclade/3.25.0` are discovered in that order and
+The standard personal root, `/usr/local/share/taffish/datasets/nextclade/3.25.1`,
+and `/opt/taffish/datasets/nextclade/3.25.1` are discovered in that order and
 mounted read-only at `/opt/taffish/datasets/nextclade`. Set
 `TAFFISH_NEXTCLADE_DATASET_PATH` to select another complete version root, or
 `TAFFISH_NEXTCLADE_DATASET_AUTO_MOUNT=0` to disable discovery. The explicit
@@ -198,8 +229,8 @@ The helper checks membership in `versions`, passes your exact tag to the
 upstream downloader, and verifies the downloaded `pathogen.json` tag. It does
 not silently substitute the catalog's `version` (latest) field.
 
-Prepared roots are app-version scoped. A 3.24.0 prepared root is not silently
-relabelled as 3.25.0: keep it for the older wrapper, or prepare the same exact
+Prepared roots are app-version scoped. A 3.25.0 prepared root is not silently
+relabelled as 3.25.1: keep it for the older wrapper, or prepare the same exact
 upstream ID/tag into the new version root. Explicit upstream `--input-dataset`
 remains available for independently preserved ordinary dataset directories.
 
@@ -209,15 +240,15 @@ disable discovery and preserve the same preflight explicitly:
 
 ```sh
 TAFFISH_NEXTCLADE_DATASET_AUTO_MOUNT=0 \
-TAFFISH_DOCKER_RUN_ARGS="-v /host/root/3.25.0:/opt/taffish/datasets/nextclade:ro -e TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
+TAFFISH_DOCKER_RUN_ARGS="-v /host/root/3.25.1:/opt/taffish/datasets/nextclade:ro -e TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
 TAFFISH_CONTAINER_BACKEND=docker taf-nextclade nextclade-datasets verify
 
 TAFFISH_NEXTCLADE_DATASET_AUTO_MOUNT=0 \
-TAFFISH_PODMAN_RUN_ARGS="-v /host/root/3.25.0:/opt/taffish/datasets/nextclade:ro -e TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
+TAFFISH_PODMAN_RUN_ARGS="-v /host/root/3.25.1:/opt/taffish/datasets/nextclade:ro -e TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
 TAFFISH_CONTAINER_BACKEND=podman taf-nextclade nextclade-datasets verify
 
 TAFFISH_NEXTCLADE_DATASET_AUTO_MOUNT=0 \
-TAFFISH_APPTAINER_RUN_ARGS="--bind /host/root/3.25.0:/opt/taffish/datasets/nextclade:ro --env TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
+TAFFISH_APPTAINER_RUN_ARGS="--bind /host/root/3.25.1:/opt/taffish/datasets/nextclade:ro --env TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
 TAFFISH_CONTAINER_BACKEND=apptainer taf-nextclade nextclade-datasets verify
 ```
 
@@ -258,9 +289,11 @@ Important resource limits:
 | Prepared dataset reuse | automatic read-only bind | automatic read-only bind | automatic read-only bind | Complete personal/site/override version root only. |
 | Web service | loopback `-p` mapping | loopback `-p` mapping | shared host network, no `-p` | Foreground helper; no authentication/TLS; keep loopback-only and choose an unused site-allowed port. |
 
-This candidate is validated on native amd64 Linux Docker, rootless Podman, and
-Apptainer, plus native arm64 Docker and Podman, with direct smoke and generated-wrapper
-tests. There is no claim of an all-platform/backend Cartesian product. Podman
+The required validation axes are native amd64 Linux Docker, rootless Podman,
+and Apptainer on xjp, plus native arm64 Docker and Podman, with direct smoke
+and generated-wrapper tests. See release.md for the completed current receipts;
+older receipts do not establish this candidate's readiness. There is no claim
+of an all-platform/backend Cartesian product. Podman
 requires a working host-side init binary for `--init`. See release.md for the
 actual evidence of this candidate, not the previous release's receipts.
 
@@ -349,7 +382,7 @@ local testing:
 taf build
 TAFFISH_DOCKER_RUN_ARGS="-p 127.0.0.1:8765:8000" \
   TAFFISH_CONTAINER_BACKEND=docker \
-  target/taf-nextclade-v3.25.0-r1 \
+  target/taf-nextclade-v3.25.1-r1 \
   nextclade-web --port 8000 --host-port 8765
 ```
 
@@ -382,7 +415,7 @@ upstream contracts tied to both the pinned program and selected dataset.
 | `/tmp/nextclade-web.*` | Web helper/Nginx | one service | unique directory; removed on normal, signal, startup, or critical exit |
 | `TAFFISH_NEXTCLADE_WEB_LOG_FILE` / explicit `--log-file FILE` | Web helper/Nginx | caller-selected | persistent wrapper-bound output; parent must be writable |
 | `/tmp/nextclade-dataset-*` | dataset helper | one command | catalog/log scratch; removed by trap |
-| `/dataset-install/3.25.0` | dataset helper | persistent | only an actual explicit writable host bind |
+| `/dataset-install/3.25.1` | dataset helper | persistent | only an actual explicit writable host bind |
 | requested CLI outputs/workdir | Nextclade CLI | persistent | caller's wrapper-bound working directory |
 | image root (`/opt`, `/usr`, `/var/lib/nginx`) | nobody at runtime | immutable | no runtime chmod/chown or write dependency |
 
@@ -391,7 +424,7 @@ Network is required for `dataset list|get`, helper network installation,
 preserved local input and dataset is offline-safe. The manifest smoke does not
 perform implicit network access.
 
-Upstream maintains paired CLI tags (`3.25.0`) and Web tags (`web-3.25.0`) for
+Upstream maintains paired CLI tags (`3.25.1`) and Web tags (`web-3.25.1`) for
 the same stable commit. The watch rule intentionally filters `web-*` and strips
 that prefix before version comparison, preventing unrelated mixed-tag lines from
 masking future stable updates while tracking the browser surface packaged here.
@@ -443,12 +476,12 @@ run in a fresh offline container with a read-only image root and only its
 documented `/tmp` and workdir writes. Docker/Podman resource binds and a real
 read-only SIF must be tested separately through generated wrappers.
 
-The 3.25.0 manifest adds synthetic CDS-boundary and start-codon regressions,
+The manifest retains synthetic CDS-boundary and start-codon regressions,
 including default-versus-explicit penalty, JSON/NDJSON/TSV, and ambiguous codons.
 It retains the four-substitution mutation-pattern/no-tree regression and adds
 an offline catalog-parser unit for fixed older tags and missing-tag rejection.
 All 17 exist entries and 14 tests must be rerun against this exact candidate;
-historical 3.24.0-r1 PASS does not qualify this update. Current receipts, image
+historical 3.25.0-r1 PASS does not qualify this update. Current receipts, image
 identities and remaining boundaries are recorded in release.md.
 
 Browser qualification uses synthetic local inputs, real pointer interaction,
@@ -467,11 +500,20 @@ priority is separately tested in a private prefix, not by modifying system paths
 Full production dataset acquisition, selected-member terms, site permissions and scientific suitability
 remain user/site responsibilities. The helper's network retry path does not
 claim byte-range resume; preserved exact members can be reused offline.
-Signal regressions additionally inject INT/TERM at backup, staging, promotion,
-and root-index boundaries, including repeated signals during rollback and a
-recovery-rename failure. They check the old root and unrelated members, a
-successful retry, and SHA256/mtime/ownership/mode-preserving idempotence through
-real wrappers and actual writable host binds. No scientific code is patched.
+Signal regressions additionally inject INT/TERM immediately before and after
+lock acquisition, and at backup, staging, promotion and root-index boundaries,
+including repeated signals during rollback and a recovery-rename failure.
+Both existing roots and fresh roots are covered; a competing caller must not
+remove another writer's lock. Invalid versions, inventories, content, missing
+or dangling markers, unindexed members, orphan files and linked member parents
+must fail through verification, discovery and normal/forced installation.
+Tests check preservation, trusted-copy recovery, successful retry, and
+SHA256/mtime/ownership/mode-preserving idempotence through real wrappers and
+actual writable host binds. No scientific code is patched.
+Cleanup ownership regressions also preserve colliding legacy staging, backup
+and control-metadata paths, external sentinels behind live or dangling links,
+and locks replaced by a symlink or another directory. Rejected roots remain
+untouched while recovery and idempotence are tested in a fresh root.
 
 These engineering gates do not replace biological validation on production
 sequences with an appropriate fixed pathogen dataset.

@@ -1,4 +1,4 @@
-nextclade 3.25.0-r1
+nextclade 3.25.1-r1
 Purpose:
   Use the primary headless CLI for viral-genome analysis, or start the optional
   official Web client as a foreground static browser service.
@@ -24,13 +24,13 @@ Prepare one exact reusable dataset member:
   taf-nextclade nextclade-datasets list-installed
   taf-nextclade nextclade-datasets path --name DATASET_ID --tag DATASET_TAG
 
-  Select an exact ID/tag; the helper does not download the whole family.
+  Select an exact ID/tag; --force never bypasses invalid roots or recovery files.
   Use --dry-run first. Upstream size/checksum/license are not uniformly supplied:
   leave enough space and review dataset terms before installation or sharing.
-  Installation needs network; later verify/path/analysis can be offline.
+  Keep old locks/staging/backups for recovery (see README); never blindly delete.
   After INT/TERM, wait for exit and verify before retrying; retained lock: see README.
 Use a prepared dataset root:
-  root=/absolute/root/3.25.0
+  root=/absolute/root/3.25.1
   target=/opt/taffish/datasets/nextclade
   Read-only roots: use paths without whitespace, commas, colons or glob characters.
     TAFFISH_NEXTCLADE_DATASET_PATH="$root" TAFFISH_CONTAINER_BACKEND=BACKEND \

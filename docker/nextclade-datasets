@@ -2,7 +2,7 @@
 set -eu
 umask 022
 
-app_version=3.25.0
+app_version=3.25.1
 schema=taffish.nextclade.dataset-root.v1
 member_schema=taffish.nextclade.dataset-member.v1
 default_server=https://data.clades.nextstrain.org/v3
@@ -20,11 +20,11 @@ Usage:
   nextclade-datasets path --name ID --tag TAG [--resource-root ROOT]
 
 Install options:
-  --resource-root ROOT  Prepared version root; default /dataset-install/3.25.0
+  --resource-root ROOT  Prepared version root; default /dataset-install/3.25.1
   --server URL          Dataset server; default https://data.clades.nextstrain.org/v3
   --source-dir DIR      Install a user-supplied dataset directory without network
   --dry-run             Resolve and report; do not download or write
-  --force               Atomically replace an incomplete or existing member
+  --force               Atomically replace a member in a fully verified root
 
 ID and TAG are always required. The helper never selects a pathogen or latest
 dataset for you. Official catalogs do not publish per-dataset byte sizes,
@@ -79,6 +79,7 @@ canonical_dir() {
 ensure_directory_within_root() {
   ed_root="$1"
   ed_path="$2"
+  [ ! -L "$ed_path" ] || die "resource control path is a symlink: $ed_path"
   if [ -e "$ed_path" ]; then
     [ -d "$ed_path" ] || die "resource control path is not a directory: $ed_path"
   else
@@ -227,7 +228,9 @@ verify_root() {
   [ -d "$vr_root" ] || return 1
   [ ! -L "$vr_root" ] || return 1
   [ -d "$vr_root/members" ] && [ ! -L "$vr_root/members" ] || return 1
-  if [ -e "$vr_root/.taffish" ]; then
+  vr_bad=$(find "$vr_root/members" \( -type l -o \! -type f -a \! -type d \) -print -quit)
+  [ -z "$vr_bad" ] || return 1
+  if [ -e "$vr_root/.taffish" ] || [ -L "$vr_root/.taffish" ]; then
     [ -d "$vr_root/.taffish" ] && [ ! -L "$vr_root/.taffish" ] || return 1
   fi
   for vr_marker in TAFFISH_DATASET_MANIFEST.json TAFFISH_DATASET_INVENTORY.tsv TAFFISH_DATASET_READY; do
@@ -249,6 +252,7 @@ verify_root() {
     END { if (rows < 1) exit 1 }
   ' "$vr_root/TAFFISH_DATASET_INVENTORY.tsv" || return 1
   vr_count=0
+  vr_files=0
   while IFS="$(printf '\t')" read -r index_dataset_id index_tag index_rel index_digest index_files index_bytes index_source index_license; do
     [ "$index_dataset_id" = dataset_id ] && continue
     safe_dataset_id "$index_dataset_id" || return 1
@@ -274,15 +278,36 @@ verify_root() {
        any(.members[]; . == $member[0])' \
       "$vr_root/TAFFISH_DATASET_MANIFEST.json" >/dev/null 2>&1 || return 1
     vr_count=$((vr_count + 1))
+    vr_files=$((vr_files + vm_actual_files + 3))
   done < "$vr_root/TAFFISH_DATASET_INVENTORY.tsv"
   vr_manifest_count=$(jq -r '.members | length' "$vr_root/TAFFISH_DATASET_MANIFEST.json")
-  [ "$vr_count" -gt 0 ] && [ "$vr_count" = "$vr_manifest_count" ]
+  [ "$vr_count" -gt 0 ] && [ "$vr_count" = "$vr_manifest_count" ] || return 1
+  # Every payload and member marker must belong to the recorded inventory.
+  # This also rejects unindexed complete members and orphan payload files.
+  vr_actual_files=$(find "$vr_root/members" -type f -exec printf '.\n' \; | wc -l | tr -d ' ')
+  [ "$vr_files" = "$vr_actual_files" ]
+}
+
+empty_install_root() {
+  ei_root="$1"
+  ei_extra=$(find "$ei_root" -mindepth 1 -maxdepth 1 \
+    ! -name .taffish-install.lock ! -name members ! -name .taffish -print -quit)
+  [ -z "$ei_extra" ] || return 1
+  for ei_dir in "$ei_root/members" "$ei_root/.taffish"; do
+    if [ -e "$ei_dir" ] || [ -L "$ei_dir" ]; then
+      [ -d "$ei_dir" ] && [ ! -L "$ei_dir" ] || return 1
+      ei_extra=$(find "$ei_dir" -mindepth 1 ! -type d -print -quit)
+      [ -z "$ei_extra" ] || return 1
+    fi
+  done
 }
 
 write_root_index() {
   root="$1"
-  meta="$root/.taffish"
-  mkdir -p "$meta"
+  # All temporary metadata belongs to the exclusive transaction directory.
+  # Never open or clean PID-named files in a pre-existing control directory.
+  meta="$lock/index"
+  mkdir "$meta"
   rm -f "$root/TAFFISH_DATASET_READY"
   manifest_list="$meta/member-manifests.$$"
   find "$root/members" -type f -name TAFFISH_DATASET_MEMBER.json -print | sort > "$manifest_list"
@@ -449,17 +474,21 @@ case "$command" in
         *) die "resource root resolves outside the /dataset-install bind: $root" ;;
       esac
     fi
-    ensure_directory_within_root "$root" "$root/members"
-    ensure_directory_within_root "$root" "$root/.taffish"
     target="$root/members/$canonical/$tag"
     [ -w "$root" ] || die "resource root is not writable: $root"
     lock="$root/.taffish-install.lock"
-    mkdir "$lock" 2>/dev/null || die "another dataset install holds the root lock: $lock"
-    stage="$root/.staging.$$.dataset"
+    lock_owned=0
+    lock_identity=
+    stage="$lock/staging"
     backup=
     promoted=0
     index_started=0
     complete=0
+    owned_transaction() {
+      [ "$lock_owned" -eq 1 ] && [ -n "$lock_identity" ] &&
+        [ ! -L "$lock" ] && [ -d "$lock" ] &&
+        [ "$(stat -c '%d:%i' "$lock" 2>/dev/null)" = "$lock_identity" ]
+    }
     cleanup_install() {
       cleanup_status=$?
       # A rollback is one non-reentrant operation. In particular, a second
@@ -467,6 +496,17 @@ case "$command" in
       trap - EXIT
       trap '' INT TERM HUP
       set +e
+      if [ "$lock_owned" -eq 0 ]; then
+        rm -f "$catalog_file" "$log_file"
+        exit "$cleanup_status"
+      fi
+      # Owning the mkdir result, not merely its pathname, permits cleanup.
+      # A replaced lock or symlink must never redirect rollback/deletion.
+      if ! owned_transaction; then
+        echo "nextclade-datasets: transaction directory identity changed; preserve all recovery files at $root" >&2
+        rm -f "$catalog_file" "$log_file"
+        exit 74
+      fi
       cleanup_failed=0
       if [ "$complete" -eq 0 ]; then
         if [ "$promoted" -eq 1 ] && [ -e "$target" ]; then
@@ -499,18 +539,14 @@ case "$command" in
       fi
       if [ "$cleanup_failed" -ne 0 ]; then
         echo "nextclade-datasets: transaction cleanup failed; recovery files and lock retained at $root" >&2
-        echo "nextclade-datasets: stop all writers; preserve this root and inspect its .backup.*, .staging.* and .taffish-install.lock before recovery" >&2
+        echo "nextclade-datasets: stop all writers; preserve this root and inspect .taffish-install.lock/backup and its saved root markers before recovery" >&2
         rm -f "$catalog_file" "$log_file"
         exit 74
       fi
-      rm -rf "$stage" || cleanup_failed=1
-      rm -f "$root/.taffish/member-manifests.$$" \
-        "$root/.taffish/root-manifest.$$" \
-        "$root/.taffish/root-inventory.$$" || cleanup_failed=1
-      rm -f "$lock/TAFFISH_DATASET_MANIFEST.json" \
-        "$lock/TAFFISH_DATASET_INVENTORY.tsv" \
-        "$lock/TAFFISH_DATASET_READY" || cleanup_failed=1
-      rmdir "$lock" || cleanup_failed=1
+      # The exclusively created directory contains every file owned by this
+      # transaction. Recursive removal unlinks nested symlinks, not targets.
+      # Old .staging.*, .backup.* and .taffish files are never cleanup targets.
+      rm -rf "$lock" || cleanup_failed=1
       rm -f "$catalog_file" "$log_file"
       [ "$cleanup_failed" -eq 0 ] || {
         echo "nextclade-datasets: temporary cleanup incomplete at $root; inspect before retrying" >&2
@@ -519,7 +555,33 @@ case "$command" in
       exit "$cleanup_status"
     }
     trap cleanup_install EXIT
-    ensure_member_parent "$root" "$canonical"
+    # Defer handled signals across the mkdir/ownership assignment boundary.
+    # The short-lived acquisition child ignores these signals so a process-
+    # group interrupt cannot kill mkdir after creation but before its status.
+    pending_signal=0
+    trap 'pending_signal=130' INT
+    trap 'pending_signal=143' TERM
+    trap 'pending_signal=129' HUP
+    if (umask 077; trap '' INT TERM HUP; mkdir "$lock" 2>/dev/null); then
+      lock_owned=1
+      lock_identity=$(stat -c '%d:%i' "$lock")
+    fi
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
+    [ "$pending_signal" -eq 0 ] || exit "$pending_signal"
+    [ "$lock_owned" -eq 1 ] || die "another dataset install holds the root lock: $lock"
+    owned_transaction || die "transaction directory identity changed before installation: $lock"
+    if ! empty_install_root "$root"; then
+      verify_root "$root" || die "existing resource root failed full integrity verification; preserve it and restore from a trusted copy or use a fresh root: $root"
+    fi
+    ensure_directory_within_root "$root" "$root/members"
+    ensure_directory_within_root "$root" "$root/.taffish"
+    pending_recovery=$(find "$root" -mindepth 1 -maxdepth 1 \
+      \( -name '.staging.*' -o -name '.backup.*' \) -print -quit)
+    [ -z "$pending_recovery" ] || die "unowned recovery path exists; preserve and inspect it before retrying: $pending_recovery"
+    pending_metadata=$(find "$root/.taffish" -mindepth 1 -print -quit)
+    [ -z "$pending_metadata" ] || die "unowned control metadata exists; preserve and inspect it before retrying: $pending_metadata"
     for marker in TAFFISH_DATASET_MANIFEST.json TAFFISH_DATASET_INVENTORY.tsv TAFFISH_DATASET_READY; do
       if [ -e "$root/$marker" ] || [ -L "$root/$marker" ]; then
         [ -f "$root/$marker" ] && [ ! -L "$root/$marker" ] ||
@@ -529,22 +591,16 @@ case "$command" in
     done
     if [ -e "$target" ]; then
       if verify_member "$target" "$canonical" "$tag" "members/$canonical/$tag" && [ "$force" -eq 0 ]; then
-        if verify_root "$root"; then
-          echo "nextclade-datasets: already complete: $target"
-          exit 0
-        fi
-        index_started=1
-        write_root_index "$root"
-        verify_root "$root" || fail "repaired root failed final integrity verification"
-        complete=1
-        echo "nextclade-datasets: repaired root index for complete member: $target"
+        echo "nextclade-datasets: already complete: $target"
         exit 0
       fi
       [ "$force" -eq 1 ] || fail "target exists but is incomplete or replacement was not authorized: $target"
-      backup="$root/.backup.$$.dataset"
+      backup="$lock/backup"
       mv "$target" "$backup"
     fi
-    mkdir -p "$stage/data"
+    ensure_member_parent "$root" "$canonical"
+    mkdir "$stage"
+    mkdir "$stage/data"
     if [ -n "$source_dir" ]; then
       validate_dataset_tree "$source_dir" "$tag"
       cp -a "$source_dir/." "$stage/data/"
