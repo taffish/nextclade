@@ -2,7 +2,7 @@
 set -eu
 umask 022
 
-app_version=3.25.1
+app_version=3.28.0
 schema=taffish.nextclade.dataset-root.v1
 member_schema=taffish.nextclade.dataset-member.v1
 default_server=https://data.clades.nextstrain.org/v3
@@ -20,7 +20,7 @@ Usage:
   nextclade-datasets path --name ID --tag TAG [--resource-root ROOT]
 
 Install options:
-  --resource-root ROOT  Prepared version root; default /dataset-install/3.25.1
+  --resource-root ROOT  Prepared version root; default /dataset-install/3.28.0
   --server URL          Dataset server; default https://data.clades.nextstrain.org/v3
   --source-dir DIR      Install a user-supplied dataset directory without network
   --dry-run             Resolve and report; do not download or write
@@ -134,7 +134,7 @@ nearest_existing_dir() {
 
 available_bytes() {
   candidate=$(nearest_existing_dir "$1")
-  df -Pk "$candidate" 2>/dev/null | awk 'NR == 2 { print $4 * 1024 }'
+  df -Pk "$candidate" 2>/dev/null | awk 'NR == 2 { printf "%.0f\n", $4 * 1024 }'
 }
 
 validate_dataset_tree() {
@@ -449,6 +449,16 @@ case "$command" in
         "catalog_sha256=$catalog_sha"
       exit 0
     fi
+    # Unknown remote member sizes cannot support an exact capacity guarantee.
+    # Still reject an unreadable/full filesystem before creating a lock or
+    # moving an existing member; local sources have a conservative known bound.
+    case "$avail" in ''|*[!0-9]*) die "cannot determine available space for: $root" ;; esac
+    required_bytes=1048576
+    if [ "$estimated_bytes" != unknown ]; then
+      required_bytes=$((estimated_bytes * 2 + required_bytes))
+    fi
+    [ "$avail" -ge "$required_bytes" ] ||
+      die "insufficient space: available=$avail required_at_least=$required_bytes; old resources unchanged"
     require_install_mount "$root"
     persistent_install=0
     case "$root" in /dataset-install|/dataset-install/*) persistent_install=1 ;; esac

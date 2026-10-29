@@ -79,18 +79,23 @@ case "$mode" in
     bash --noprofile --norc -ec 'value="two words"; test "$value" = "two words"'
     test -x /usr/local/libexec/nextclade
     grep -F 'TAFFISH_NEXTCLADE_DATASET_MOUNTED' /usr/local/bin/nextclade >/dev/null
-    nextclade --version | grep -Fx 'nextclade 3.25.1' >/dev/null
-    /usr/local/libexec/nextclade --version | grep -Fx 'nextclade 3.25.1' >/dev/null
-    nextalign --version | grep -Fx 'nextclade 3.25.1' >/dev/null
+    expect_status 0 nextclade --version
+    grep -Fx 'nextclade 3.28.0' "$NEXTCLADE_SMOKE_COMMAND_LOG" >/dev/null
+    expect_status 0 /usr/local/libexec/nextclade --version
+    grep -Fx 'nextclade 3.28.0' "$NEXTCLADE_SMOKE_COMMAND_LOG" >/dev/null
+    expect_status 0 nextalign --version
+    grep -Fx 'nextclade 3.28.0' "$NEXTCLADE_SMOKE_COMMAND_LOG" >/dev/null
     nextclade --help | grep -F 'Run sequence analysis' >/dev/null
-    nextclade-web --version | grep -F 'Nextclade Web 3.25.1' >/dev/null
+    expect_status 0 nextclade-web --version
+    grep -Fx 'Nextclade Web 3.28.0' "$NEXTCLADE_SMOKE_COMMAND_LOG" >/dev/null
     nextclade-web --help | grep -F 'foreground browser service' >/dev/null
-    nextclade-datasets --version | grep -Fx 'nextclade-datasets 3.25.1-r1' >/dev/null
+    expect_status 0 nextclade-datasets --version
+    grep -Fx 'nextclade-datasets 3.28.0-r1' "$NEXTCLADE_SMOKE_COMMAND_LOG" >/dev/null
     nextclade-datasets --help | grep -F 'version-pinned Nextclade datasets' >/dev/null
-    grep -F '"version": "3.25.1"' /usr/share/nextclade-web/app.json >/dev/null
-    grep -F '"commitHash": "4316e4141a83d7111829fb1c610dc89157267151"' \
+    grep -F '"version": "3.28.0"' /usr/share/nextclade-web/app.json >/dev/null
+    grep -F '"commitHash": "9a2ca6ec5af0e543e1c1fdf0749654c0b6acfe14"' \
       /usr/share/nextclade-web/app.json >/dev/null
-    grep -F 'web_artifact_id=12393660818' /usr/share/nextclade-taffish/cli-source.txt >/dev/null
+    grep -F 'web_artifact_id=12834903990' /usr/share/nextclade-taffish/cli-source.txt >/dev/null
     test -s /usr/share/doc/nextclade-upstream/LICENSE
     ;;
   commands)
@@ -202,12 +207,12 @@ EOF
     printf '%s\n' '[{"path":"taffish/fixture/reference","version":{"tag":"fixture-newer"},"versions":[{"tag":"fixture-1"},{"tag":"fixture-newer"}]}]' > "$work/catalog.json"
     env PATH="$work/catalog-bin:$PATH" NEXTCLADE_CATALOG_FIXTURE="$work/catalog.json" \
       nextclade-datasets install --name taffish/fixture/reference --tag fixture-1 \
-      --resource-root "$work/root-parent/3.25.1" --dry-run > "$work/catalog-old-tag.txt"
+      --resource-root "$work/root-parent/3.28.0" --dry-run > "$work/catalog-old-tag.txt"
     grep -Fx 'tag=fixture-1' "$work/catalog-old-tag.txt" >/dev/null
     expect_status 1 env PATH="$work/catalog-bin:$PATH" NEXTCLADE_CATALOG_FIXTURE="$work/catalog.json" \
       nextclade-datasets install --name taffish/fixture/reference --tag absent \
-      --resource-root "$work/root-parent/3.25.1" --dry-run
-    test ! -e "$work/root-parent/3.25.1"
+      --resource-root "$work/root-parent/3.28.0" --dry-run
+    test ! -e "$work/root-parent/3.28.0"
     cat > "$work/source/reference.fasta" <<'EOF'
 >reference
 ATGAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTTAAA
@@ -224,20 +229,20 @@ EOF
       --name taffish/fixture/reference \
       --tag fixture-1 \
       --source-dir "$work/reserved-source" \
-      --resource-root "$work/root-parent/3.25.1" \
+      --resource-root "$work/root-parent/3.28.0" \
       --dry-run
     mark_stage dataset-path-traversal-rejection
     expect_status 64 nextclade-datasets install \
       --name 'safe/../../../escape-target' \
       --tag fixture-1 \
       --source-dir "$work/source" \
-      --resource-root "$work/root-parent/3.25.1"
+      --resource-root "$work/root-parent/3.28.0"
     test ! -e "$work/root-parent/escape-target" || fail 'unsafe dataset ID escaped the resource root'
     expect_status 64 nextclade-datasets install \
       --name taffish/fixture/reference \
       --tag fixture-1 \
       --source-dir "$work/source" \
-      --resource-root "$work/root-parent/3.25.1/../escape-target"
+      --resource-root "$work/root-parent/3.28.0/../escape-target"
     test ! -e "$work/root-parent/escape-target" || fail 'dot-segment resource root escaped its parent'
     expect_status 64 nextclade-datasets install \
       --name taffish/fixture/reference \
@@ -249,7 +254,7 @@ EOF
         --name taffish/fixture/reference \
         --tag fixture-1 \
         --source-dir "$work/source"
-    test ! -e /dataset-install/3.25.1 || fail 'marker-only install wrote into the image root'
+    test ! -e /dataset-install/3.28.0 || fail 'marker-only install wrote into the image root'
     mkdir -p "$work/symlink-root" "$work/symlink-outside"
     ln -s "$work/symlink-outside" "$work/symlink-root/members"
     expect_status 64 nextclade-datasets install \
@@ -264,7 +269,7 @@ EOF
       --name taffish/fixture/reference \
       --tag fixture-1 \
       --source-dir "$work/source" \
-      --resource-root "$work/root-parent/3.25.1" \
+      --resource-root "$work/root-parent/3.28.0" \
       --dry-run > "$work/dry-run.txt"
     grep -Fx 'dataset_id=taffish/fixture/reference' "$work/dry-run.txt" >/dev/null
     grep -F "source=local:$work/source" "$work/dry-run.txt" >/dev/null
@@ -276,24 +281,24 @@ EOF
       --name taffish/fixture/reference \
       --tag fixture-1 \
       --source-dir "$work/source" \
-      --resource-root "$work/root-parent/3.25.1" > "$work/install.txt"
+      --resource-root "$work/root-parent/3.28.0" > "$work/install.txt"
     mark_stage dataset-root-verification
-    nextclade-datasets verify --resource-root "$work/root-parent/3.25.1"
+    nextclade-datasets verify --resource-root "$work/root-parent/3.28.0"
     dataset_dir=$(nextclade-datasets path \
       --name taffish/fixture/reference \
       --tag fixture-1 \
-      --resource-root "$work/root-parent/3.25.1")
-    [ "$dataset_dir" = "$work/root-parent/3.25.1/members/taffish/fixture/reference/fixture-1" ]
+      --resource-root "$work/root-parent/3.28.0")
+    [ "$dataset_dir" = "$work/root-parent/3.28.0/members/taffish/fixture/reference/fixture-1" ]
     nextclade-datasets install \
       --name taffish/fixture/reference \
       --tag fixture-1 \
       --source-dir "$work/source" \
-      --resource-root "$work/root-parent/3.25.1" > "$work/idempotent.txt"
+      --resource-root "$work/root-parent/3.28.0" > "$work/idempotent.txt"
     grep -F 'already complete' "$work/idempotent.txt" >/dev/null
 
     mark_stage dataset-rollback
     (
-      CDPATH= cd "$work/root-parent/3.25.1" &&
+      CDPATH= cd "$work/root-parent/3.28.0" &&
         find . -type f -print0 | sort -z | xargs -0 sha256sum
     ) > "$work/before-rollback.sha256"
     expect_status 1 env NEXTCLADE_DATASETS_TEST_FAIL_ROOT_INDEX=1 \
@@ -301,19 +306,19 @@ EOF
         --name taffish/fixture/reference \
         --tag fixture-1 \
         --source-dir "$work/source" \
-        --resource-root "$work/root-parent/3.25.1" \
+        --resource-root "$work/root-parent/3.28.0" \
         --force
     (
-      CDPATH= cd "$work/root-parent/3.25.1" &&
+      CDPATH= cd "$work/root-parent/3.28.0" &&
         find . -type f -print0 | sort -z | xargs -0 sha256sum
     ) > "$work/after-rollback.sha256"
     cmp -s "$work/before-rollback.sha256" "$work/after-rollback.sha256" || fail 'root index failure did not restore the previous resource tree'
-    test ! -e "$work/root-parent/3.25.1/.taffish-install.lock" || fail 'dataset lock remained after rollback'
-    residue=$(find "$work/root-parent/3.25.1" \
+    test ! -e "$work/root-parent/3.28.0/.taffish-install.lock" || fail 'dataset lock remained after rollback'
+    residue=$(find "$work/root-parent/3.28.0" \
       \( -name '.staging.*' -o -name '.backup.*' -o -name 'member-manifests.*' -o -name 'root-manifest.*' -o -name 'root-inventory.*' \) \
       -print -quit)
     [ -z "$residue" ] || fail "dataset transaction residue remained: $residue"
-    nextclade-datasets verify --resource-root "$work/root-parent/3.25.1"
+    nextclade-datasets verify --resource-root "$work/root-parent/3.28.0"
 
     mark_stage dataset-signal-rollback
     mkdir "$work/signal-bin"
@@ -335,41 +340,41 @@ SIGNAL_JQ
         NEXTCLADE_SMOKE_INSTALL_SIGNAL="$install_signal" \
         nextclade-datasets install \
           --name taffish/fixture/reference --tag fixture-1 \
-          --source-dir "$work/source" --resource-root "$work/root-parent/3.25.1" --force
-      (CDPATH= cd "$work/root-parent/3.25.1" &&
+          --source-dir "$work/source" --resource-root "$work/root-parent/3.28.0" --force
+      (CDPATH= cd "$work/root-parent/3.28.0" &&
         find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$work/after-signal.sha256"
       cmp -s "$work/before-rollback.sha256" "$work/after-signal.sha256" ||
         fail "$install_signal did not preserve the original complete resource root"
-      test ! -e "$work/root-parent/3.25.1/.taffish-install.lock" || fail 'signal left installer lock'
-      residue=$(find "$work/root-parent/3.25.1" \( -name '.backup.*' -o -name '.staging.*' \) -print -quit)
+      test ! -e "$work/root-parent/3.28.0/.taffish-install.lock" || fail 'signal left installer lock'
+      residue=$(find "$work/root-parent/3.28.0" \( -name '.backup.*' -o -name '.staging.*' \) -print -quit)
       [ -z "$residue" ] || fail "signal left transaction residue: $residue"
-      nextclade-datasets verify --resource-root "$work/root-parent/3.25.1"
+      nextclade-datasets verify --resource-root "$work/root-parent/3.28.0"
     done
 
     mark_stage dataset-root-marker-symlink-install-rejection
-    cp -p "$work/root-parent/3.25.1/TAFFISH_DATASET_MANIFEST.json" "$work/root-marker.good"
+    cp -p "$work/root-parent/3.28.0/TAFFISH_DATASET_MANIFEST.json" "$work/root-marker.good"
     printf '%s\n' outside-sentinel > "$work/outside-sentinel"
-    rm -f "$work/root-parent/3.25.1/TAFFISH_DATASET_MANIFEST.json"
-    ln -s "$work/outside-sentinel" "$work/root-parent/3.25.1/TAFFISH_DATASET_MANIFEST.json"
+    rm -f "$work/root-parent/3.28.0/TAFFISH_DATASET_MANIFEST.json"
+    ln -s "$work/outside-sentinel" "$work/root-parent/3.28.0/TAFFISH_DATASET_MANIFEST.json"
     expect_status 64 env NEXTCLADE_DATASETS_TEST_FAIL_ROOT_INDEX=1 \
       nextclade-datasets install \
         --name taffish/fixture/reference \
         --tag fixture-1 \
         --source-dir "$work/source" \
-        --resource-root "$work/root-parent/3.25.1" \
+        --resource-root "$work/root-parent/3.28.0" \
         --force
     grep -Fx outside-sentinel "$work/outside-sentinel" >/dev/null || fail 'root marker symlink modified the external sentinel'
-    test ! -e "$work/root-parent/3.25.1/.taffish-install.lock" || fail 'dataset lock remained after marker symlink rejection'
-    rm -f "$work/root-parent/3.25.1/TAFFISH_DATASET_MANIFEST.json"
-    cp -p "$work/root-marker.good" "$work/root-parent/3.25.1/TAFFISH_DATASET_MANIFEST.json"
-    nextclade-datasets verify --resource-root "$work/root-parent/3.25.1"
+    test ! -e "$work/root-parent/3.28.0/.taffish-install.lock" || fail 'dataset lock remained after marker symlink rejection'
+    rm -f "$work/root-parent/3.28.0/TAFFISH_DATASET_MANIFEST.json"
+    cp -p "$work/root-marker.good" "$work/root-parent/3.28.0/TAFFISH_DATASET_MANIFEST.json"
+    nextclade-datasets verify --resource-root "$work/root-parent/3.28.0"
 
     mark_stage dataset-cleanup-ownership
     # Each negative fixture has an independent root. Legacy PID names and
     # symlink targets belong to a previous owner, never to this transaction.
     for hazard in staging backup metadata live-link dangling-link; do
       hazard_root="$work/hazard-$hazard"
-      cp -a "$work/root-parent/3.25.1" "$hazard_root"
+      cp -a "$work/root-parent/3.28.0" "$hazard_root"
       mkdir "$work/outside-$hazard"
       printf '%s\n' keep-old > "$work/outside-$hazard/sentinel"
       case "$hazard" in
@@ -392,7 +397,7 @@ SIGNAL_JQ
         metadata) grep -Fx keep-old "$hazard_root/.taffish/member-manifests.2" >/dev/null ;;
         *) test -L "$hazard_root/.taffish"; test "$(readlink "$hazard_root/.taffish")" = "$link_target" ;;
       esac
-      cmp "$hazard_root/TAFFISH_DATASET_MANIFEST.json" "$work/root-parent/3.25.1/TAFFISH_DATASET_MANIFEST.json"
+      cmp "$hazard_root/TAFFISH_DATASET_MANIFEST.json" "$work/root-parent/3.28.0/TAFFISH_DATASET_MANIFEST.json"
       cmp "$hazard_root/members/taffish/fixture/reference/fixture-1/reference.fasta" "$dataset_dir/reference.fasta"
     done
 
@@ -428,49 +433,180 @@ SIGNAL_JQ
     cp -p "$work/member-inventory.good" "$dataset_dir/TAFFISH_DATASET_MEMBER_INVENTORY.sha256"
 
     mark_stage dataset-root-manifest-corruption
-    cp -p "$work/root-parent/3.25.1/TAFFISH_DATASET_MANIFEST.json" "$work/root-manifest.good"
+    cp -p "$work/root-parent/3.28.0/TAFFISH_DATASET_MANIFEST.json" "$work/root-manifest.good"
     jq '.members[0].tag = "tampered"' "$work/root-manifest.good" \
-      > "$work/root-parent/3.25.1/TAFFISH_DATASET_MANIFEST.json"
-    expect_status 1 nextclade-datasets verify --resource-root "$work/root-parent/3.25.1"
+      > "$work/root-parent/3.28.0/TAFFISH_DATASET_MANIFEST.json"
+    expect_status 1 nextclade-datasets verify --resource-root "$work/root-parent/3.28.0"
     expect_status 1 nextclade-datasets path \
       --name taffish/fixture/reference \
       --tag fixture-1 \
-      --resource-root "$work/root-parent/3.25.1"
+      --resource-root "$work/root-parent/3.28.0"
     expect_status 64 nextclade-datasets install \
       --name taffish/fixture/reference \
       --tag fixture-1 \
       --source-dir "$work/source" \
-      --resource-root "$work/root-parent/3.25.1"
+      --resource-root "$work/root-parent/3.28.0"
     expect_status 64 nextclade-datasets install \
       --name taffish/fixture/new --tag fixture-1 --source-dir "$work/source" \
-      --resource-root "$work/root-parent/3.25.1" --force
-    jq -e '.members[0].tag == "tampered"' "$work/root-parent/3.25.1/TAFFISH_DATASET_MANIFEST.json" >/dev/null
-    test ! -e "$work/root-parent/3.25.1/members/taffish/fixture/new"
-    test ! -e "$work/root-parent/3.25.1/.taffish-install.lock"
+      --resource-root "$work/root-parent/3.28.0" --force
+    jq -e '.members[0].tag == "tampered"' "$work/root-parent/3.28.0/TAFFISH_DATASET_MANIFEST.json" >/dev/null
+    test ! -e "$work/root-parent/3.28.0/members/taffish/fixture/new"
+    test ! -e "$work/root-parent/3.28.0/.taffish-install.lock"
     # Restore the exact known-good test metadata, never repair it implicitly.
-    cp -p "$work/root-manifest.good" "$work/root-parent/3.25.1/TAFFISH_DATASET_MANIFEST.json"
-    nextclade-datasets verify --resource-root "$work/root-parent/3.25.1"
+    cp -p "$work/root-manifest.good" "$work/root-parent/3.28.0/TAFFISH_DATASET_MANIFEST.json"
+    nextclade-datasets verify --resource-root "$work/root-parent/3.28.0"
 
     mark_stage dataset-root-ready-corruption
-    cp -p "$work/root-parent/3.25.1/TAFFISH_DATASET_READY" "$work/root-ready.good"
-    printf '%s\n' invalid > "$work/root-parent/3.25.1/TAFFISH_DATASET_READY"
-    expect_status 1 nextclade-datasets verify --resource-root "$work/root-parent/3.25.1"
-    cp -p "$work/root-ready.good" "$work/root-parent/3.25.1/TAFFISH_DATASET_READY"
-    rm -f "$work/root-parent/3.25.1/TAFFISH_DATASET_READY"
-    ln -s "$work/root-ready.good" "$work/root-parent/3.25.1/TAFFISH_DATASET_READY"
-    expect_status 1 nextclade-datasets verify --resource-root "$work/root-parent/3.25.1"
-    rm -f "$work/root-parent/3.25.1/TAFFISH_DATASET_READY"
-    cp -p "$work/root-ready.good" "$work/root-parent/3.25.1/TAFFISH_DATASET_READY"
+    cp -p "$work/root-parent/3.28.0/TAFFISH_DATASET_READY" "$work/root-ready.good"
+    printf '%s\n' invalid > "$work/root-parent/3.28.0/TAFFISH_DATASET_READY"
+    expect_status 1 nextclade-datasets verify --resource-root "$work/root-parent/3.28.0"
+    cp -p "$work/root-ready.good" "$work/root-parent/3.28.0/TAFFISH_DATASET_READY"
+    rm -f "$work/root-parent/3.28.0/TAFFISH_DATASET_READY"
+    ln -s "$work/root-ready.good" "$work/root-parent/3.28.0/TAFFISH_DATASET_READY"
+    expect_status 1 nextclade-datasets verify --resource-root "$work/root-parent/3.28.0"
+    rm -f "$work/root-parent/3.28.0/TAFFISH_DATASET_READY"
+    cp -p "$work/root-ready.good" "$work/root-parent/3.28.0/TAFFISH_DATASET_READY"
 
     mark_stage dataset-root-inventory-duplicate
-    cp -p "$work/root-parent/3.25.1/TAFFISH_DATASET_INVENTORY.tsv" "$work/root-inventory.good"
-    tail -n 1 "$work/root-inventory.good" >> "$work/root-parent/3.25.1/TAFFISH_DATASET_INVENTORY.tsv"
-    expect_status 1 nextclade-datasets verify --resource-root "$work/root-parent/3.25.1"
-    cp -p "$work/root-inventory.good" "$work/root-parent/3.25.1/TAFFISH_DATASET_INVENTORY.tsv"
+    cp -p "$work/root-parent/3.28.0/TAFFISH_DATASET_INVENTORY.tsv" "$work/root-inventory.good"
+    tail -n 1 "$work/root-inventory.good" >> "$work/root-parent/3.28.0/TAFFISH_DATASET_INVENTORY.tsv"
+    expect_status 1 nextclade-datasets verify --resource-root "$work/root-parent/3.28.0"
+    cp -p "$work/root-inventory.good" "$work/root-parent/3.28.0/TAFFISH_DATASET_INVENTORY.tsv"
 
     mark_stage dataset-content-corruption
     printf 'corruption\n' >> "$dataset_dir/reference.fasta"
     expect_status 1 nextclade-datasets verify --dataset-dir "$dataset_dir"
+    ;;
+  web-output-close)
+    mark_stage web-closed-output-cleanup
+    work="$(mktemp -d /tmp/nextclade-web-pipe.XXXXXX)"
+    helper_pid=
+    reader_pid=
+    cleanup_pipe() {
+      if [ -n "$helper_pid" ]; then
+        kill -TERM "$helper_pid" 2>/dev/null || true
+        wait "$helper_pid" 2>/dev/null || true
+      fi
+      if [ -n "$reader_pid" ]; then
+        kill -TERM "$reader_pid" 2>/dev/null || true
+        wait "$reader_pid" 2>/dev/null || true
+      fi
+      rm -rf "$work"
+    }
+    trap cleanup_pipe EXIT
+    mkfifo "$work/pipe"
+    (
+      while IFS= read -r line; do
+        printf '%s\n' "$line" >> "$work/received"
+        [ "$line" != 'Nextclade Web is ready.' ] || break
+      done < "$work/pipe"
+    ) &
+    reader_pid=$!
+    nextclade-web --port 5822 > "$work/pipe" 2>"$work/errors" &
+    helper_pid=$!
+    count=0
+    while ! grep -F 'Nextclade Web is ready.' "$work/received" >/dev/null 2>&1; do
+      kill -0 "$helper_pid" || fail 'helper exited before pipe regression was ready'
+      count=$((count + 1))
+      [ "$count" -lt 150 ] || fail 'pipe regression startup timeout'
+      sleep 0.1
+    done
+    wait "$reader_pid"
+    reader_pid=
+    runtime_log=$(awk '/Internal HTTP log:/ {getline; sub(/^[[:space:]]+/, ""); print; exit}' "$work/received")
+    case "$runtime_log" in /tmp/nextclade-web.*/http.log) ;; *) fail 'missing owned runtime' ;; esac
+    wget -qO "$work/health" -T 1 http://127.0.0.1:5822/_taf_health ||
+      { cat "$work/errors" >&2; fail 'service stopped before the requested signal'; }
+    kill -TERM "$helper_pid"
+    set +e
+    wait "$helper_pid"
+    status=$?
+    set -e
+    helper_pid=
+    [ "$status" -eq 143 ] || { cat "$work/errors" >&2; fail "closed output changed TERM status to $status"; }
+    test ! -e "$(dirname "$runtime_log")" || fail 'closed pipe left runtime directory'
+    if wget -qO- -T 1 http://127.0.0.1:5822/_taf_health >/dev/null 2>&1; then
+      fail 'closed pipe left service listening'
+    fi
+    ;;
+  web-cleanup-failure)
+    mark_stage web-cleanup-failure-status
+    work="$(mktemp -d /tmp/nextclade-web-cleanup.XXXXXX)"
+    trap 'rm -rf "$work"' EXIT
+    mkdir "$work/bin"
+    cat > "$work/bin/rm" <<'FAIL_RM'
+#!/bin/sh
+case "$*" in *'/tmp/nextclade-web.'*) echo 'injected cleanup removal error' >&2; exit 73 ;; esac
+exec /bin/rm "$@"
+FAIL_RM
+    chmod 0755 "$work/bin/rm"
+    set +e
+    env PATH="$work/bin:$PATH" NEXTCLADE_WEB_TEST_CRITICAL_EXIT_AFTER_READY=zero \
+      nextclade-web --port 5823 >"$work/output" 2>&1
+    status=$?
+    set -e
+    [ "$status" -eq 74 ] || { cat "$work/output" >&2; fail "cleanup failure status was $status"; }
+    grep -F 'cleanup incomplete; inspect retained diagnostics:' "$work/output" >/dev/null
+    if grep -Fx 'Nextclade Web stopped.' "$work/output"; then fail 'cleanup failure falsely reported success'; fi
+    runtime_log=$(awk '/Internal HTTP log:/ {getline; sub(/^[[:space:]]+/, ""); print; exit}' "$work/output")
+    case "$runtime_log" in /tmp/nextclade-web.*/http.log) ;; *) fail 'missing retained runtime' ;; esac
+    test -s "$runtime_log" || fail 'cleanup failure lost diagnostic log'
+    if wget -qO- -T 1 http://127.0.0.1:5823/_taf_health >/dev/null 2>&1; then
+      fail 'cleanup error left owned process listening'
+    fi
+    /bin/rm -rf "$(dirname "$runtime_log")"
+    sh /usr/share/nextclade-taffish/fixtures/gui-runtime-identity.sh
+    ;;
+  output-errors)
+    mark_stage upstream-output-and-error-contract
+    work="$(mktemp -d /tmp/nextclade-output.XXXXXX)"
+    trap 'rm -rf "$work"' EXIT
+    fixture=/usr/share/nextclade-taffish/fixtures
+    nextclade run --input-ref "$fixture/reference.fasta" --output-json - \
+      "$fixture/query.fasta" > "$work/result.json"
+    jq -se 'length == 1 and .[0].errors == [] and (.[0].results | length) == 1' \
+      "$work/result.json" >/dev/null
+    expect_status 1 nextclade run --input-ref "$fixture/reference.fasta" \
+      --input-pathogen-json "$work/missing settings.json" \
+      --output-tsv "$work/result.tsv" "$fixture/query.fasta"
+    grep -F 'missing settings.json' "$NEXTCLADE_SMOKE_COMMAND_LOG" >/dev/null
+    expect_status 2 nextclade run --jobs 0 --input-ref "$fixture/reference.fasta" \
+      --output-json "$work/zero.json" "$fixture/query.fasta"
+    test ! -e "$work/zero.json" || fail 'invalid jobs created an output'
+    # A directory is a portable write failure, including a contained Apptainer
+    # /dev where /dev/full is absent and could otherwise become a regular file.
+    mkdir "$work/output directory"
+    expect_status 1 nextclade run --input-ref "$fixture/reference.fasta" \
+      --output-tsv "$work/output directory" "$fixture/query.fasta"
+    grep -F 'output directory' "$NEXTCLADE_SMOKE_COMMAND_LOG" >/dev/null
+    if grep -Ei 'panicked|stack backtrace' "$NEXTCLADE_SMOKE_COMMAND_LOG"; then
+      fail 'write error produced a panic'
+    fi
+    if [ -c /dev/full ]; then
+      expect_status 1 nextclade run --input-ref "$fixture/reference.fasta" \
+        --output-tsv /dev/full "$fixture/query.fasta"
+      grep -F '/dev/full' "$NEXTCLADE_SMOKE_COMMAND_LOG" >/dev/null
+      if grep -Ei 'panicked|stack backtrace' "$NEXTCLADE_SMOKE_COMMAND_LOG"; then
+        fail 'full-device write error produced a panic'
+      fi
+    fi
+    ;;
+  resource-space)
+    mark_stage resource-capacity-preflight
+    work="$(mktemp -d /tmp/nextclade-space.XXXXXX)"
+    trap 'rm -rf "$work"' EXIT
+    mkdir "$work/bin" "$work/source"
+    cp /usr/share/nextclade-taffish/fixtures/reference.fasta "$work/source/"
+    printf '%s\n' '{"version":{"tag":"fixture-1"}}' > "$work/source/pathogen.json"
+    cat > "$work/bin/df" <<'NO_SPACE'
+#!/bin/sh
+printf '%s\n' 'Filesystem 1024-blocks Used Available Capacity Mounted on' 'test 100 100 0 100% /'
+NO_SPACE
+    chmod 0755 "$work/bin/df"
+    expect_status 64 env PATH="$work/bin:$PATH" nextclade-datasets install \
+      --name taffish/fixture --tag fixture-1 --source-dir "$work/source" --resource-root "$work/root"
+    grep -F 'insufficient space:' "$NEXTCLADE_SMOKE_COMMAND_LOG" >/dev/null
+    test ! -e "$work/root" || fail 'space rejection wrote resource root'
     ;;
   web-ready-int)
     mark_stage web-ready-ctrl-c
@@ -498,7 +634,7 @@ SIGNAL_JQ
     [ "$status" -eq 130 ] || { cat "$log" >&2; fail "ready Ctrl-C status was ${status}"; }
     assert_network_card "$log"
     grep -F '<title>Nextclade</title>' "$work/index.html" >/dev/null
-    grep -F '"version": "3.25.1"' "$work/app.json" >/dev/null
+    grep -F '"version": "3.28.0"' "$work/app.json" >/dev/null
     start_line="$(grep -nF 'Nextclade Web is starting.' "$log" | cut -d: -f1)"
     url_line="$(grep -nF 'http://127.0.0.1:8765/' "$log" | cut -d: -f1)"
     ssh_line="$(grep -nF 'ssh -N -L 8765:127.0.0.1:8765' "$log" | cut -d: -f1)"
@@ -547,7 +683,7 @@ SIGNAL_JQ
     wget -qO "$work/index.html" http://127.0.0.1:5817/
     wget -qO "$work/app.json" http://127.0.0.1:5817/app.json
     grep -F '<title>Nextclade</title>' "$work/index.html" >/dev/null
-    grep -F '"version": "3.25.1"' "$work/app.json" >/dev/null
+    grep -F '"version": "3.28.0"' "$work/app.json" >/dev/null
     start_line="$(grep -nF 'Nextclade Web is starting.' "$log" | cut -d: -f1)"
     url_line="$(grep -nF 'http://127.0.0.1:8765/' "$log" | cut -d: -f1)"
     ssh_line="$(grep -nF 'ssh -N -L 8765:127.0.0.1:8765' "$log" | cut -d: -f1)"
@@ -754,7 +890,7 @@ SIGNAL_JQ
     expect_status 64 nextclade-datasets path --name 'safe/../../../unsafe' --tag fixture-1
     ;;
   *)
-    echo "Usage: nextclade-smoke {identity|commands|core|mutation-patterns|cds-boundary|datasets|web-ready-int|web-ready-term|web-startup-int|web-handshake-int|web-critical|web-critical-zero|web-occupied-port|errors}" >&2
+    echo "Usage: nextclade-smoke {identity|commands|core|mutation-patterns|cds-boundary|output-errors|datasets|resource-space|web-ready-int|web-ready-term|web-startup-int|web-handshake-int|web-critical|web-critical-zero|web-occupied-port|web-output-close|web-cleanup-failure|errors}" >&2
     exit 2
     ;;
 esac
