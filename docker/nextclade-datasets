@@ -2,7 +2,7 @@
 set -eu
 umask 022
 
-app_version=3.28.0
+app_version=3.29.0
 schema=taffish.nextclade.dataset-root.v1
 member_schema=taffish.nextclade.dataset-member.v1
 default_server=https://data.clades.nextstrain.org/v3
@@ -20,7 +20,7 @@ Usage:
   nextclade-datasets path --name ID --tag TAG [--resource-root ROOT]
 
 Install options:
-  --resource-root ROOT  Prepared version root; default /dataset-install/3.28.0
+  --resource-root ROOT  Prepared version root; default /dataset-install/3.29.0
   --server URL          Dataset server; default https://data.clades.nextstrain.org/v3
   --source-dir DIR      Install a user-supplied dataset directory without network
   --dry-run             Resolve and report; do not download or write
@@ -137,18 +137,42 @@ available_bytes() {
   df -Pk "$candidate" 2>/dev/null | awk 'NR == 2 { printf "%.0f\n", $4 * 1024 }'
 }
 
+# Match the upstream directory loader: a named reference is required, and
+# a declared tree or genome annotation is an analysis input, not a hint.
+# Check relative names before opening them; never read through member links.
+validate_analysis_inputs() (
+  dir=$1; requested_tag=$2; cfg="$dir/pathogen.json"
+  [ -f "$cfg" ] && [ ! -L "$cfg" ] && [ -r "$cfg" ] && [ -s "$cfg" ] ||
+    { echo 'nextclade-datasets: missing or unreadable pathogen.json' >&2; return 1; }
+  names=$(jq -er --arg tag "$requested_tag" '
+    def relative_file:
+      type == "string" and length > 0 and
+      (test("[[:cntrl:]]|\\\\") | not) and
+      (split("/") | all(. != "" and . != "..")) and
+      (split("/") | last | . != "." and (startswith("TAFFISH_DATASET_") | not));
+    if .version.tag != $tag then error("dataset tag mismatch; expected " + $tag)
+    elif (.files | type) != "object" or (.files.reference | relative_file | not)
+    then error("missing or invalid files.reference")
+    else [.files.reference,.files.treeJson,.files.genomeAnnotation] | map(select(. != null)) |
+      if all(relative_file) then .[] else error("invalid relative analysis input") end
+    end' "$cfg") || return 1
+  while IFS= read -r name; do
+    if ! [ -f "$dir/$name" ] || ! [ -r "$dir/$name" ] || ! [ -s "$dir/$name" ]; then
+      printf 'nextclade-datasets: missing or unreadable declared analysis input: %s\n' "$name" >&2
+      return 1
+    fi
+  done <<EOF
+$names
+EOF
+)
+
 validate_dataset_tree() {
   dir="$1"
   tag="$2"
   [ -d "$dir" ] || fail "dataset directory does not exist: $dir"
-  [ -s "$dir/reference.fasta" ] || fail "dataset is incomplete: missing reference.fasta"
-  [ -s "$dir/pathogen.json" ] || fail "dataset is incomplete: missing pathogen.json"
-  jq -e . "$dir/pathogen.json" >/dev/null 2>&1 || fail "dataset pathogen.json is not valid JSON"
-  actual_tag=$(jq -r '.version.tag // empty' "$dir/pathogen.json")
-  [ "$actual_tag" = "$tag" ] ||
-    fail "dataset tag mismatch: requested $tag, pathogen.json reports ${actual_tag:-missing}"
   bad=$(find "$dir" \( -type l -o \! -type f -a \! -type d \) -print -quit)
   [ -z "$bad" ] || fail "dataset contains a symlink or special file: $bad"
+  validate_analysis_inputs "$dir" "$tag" || fail "dataset failed analysis input validation"
   reserved=$(find "$dir" -type f \
     \( -name TAFFISH_DATASET_MEMBER.json \
        -o -name TAFFISH_DATASET_MEMBER_INVENTORY.sha256 \
@@ -193,6 +217,7 @@ verify_member() {
   [ -z "$vm_expected_rel" ] || [ "$vm_rel" = "$vm_expected_rel" ] || return 1
   vm_bad=$(find "$vm_dir" \( -type l -o \! -type f -a \! -type d \) -print -quit)
   [ -z "$vm_bad" ] || return 1
+  validate_analysis_inputs "$vm_dir" "$vm_tag" || return 1
   vm_recorded_inventory_digest=$(sha256sum "$vm_dir/TAFFISH_DATASET_MEMBER_INVENTORY.sha256" | awk '{print $1}')
   vm_actual_inventory_digest=$(
     CDPATH= cd "$vm_dir" &&

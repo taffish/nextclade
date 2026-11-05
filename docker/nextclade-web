@@ -95,8 +95,8 @@ while [ "$#" -gt 0 ]; do
       ;;
     --log-file=*) log_file="${1#*=}"; log_file_explicit=1; shift ;;
     --version)
-      echo "Nextclade Web 3.28.0"
-      echo "upstream commit 9a2ca6ec5af0e543e1c1fdf0749654c0b6acfe14"
+      echo "Nextclade Web 3.29.0"
+      echo "upstream commit 8a9348557d929cb09078890d3e473cbae07c43fc"
       exit 0
       ;;
     -h|--help)

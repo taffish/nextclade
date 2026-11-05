@@ -9,35 +9,14 @@ Package identity:
 - name: `nextclade`
 - command: `taf-nextclade`
 - kind: `tool`
-- version: `3.28.0-r1`
+- version: `3.29.0-r1`
 - TAFFISH app license: Apache-2.0
 - upstream license: MIT
 - native platforms: `linux/amd64`, `linux/arm64`
-- upstream release: [3.28.0](https://github.com/nextstrain/nextclade/releases/tag/3.28.0)
-- upstream commit: `9a2ca6ec5af0e543e1c1fdf0749654c0b6acfe14`
+- upstream release: [3.29.0](https://github.com/nextstrain/nextclade/releases/tag/3.29.0)
+- upstream commit: `8a9348557d929cb09078890d3e473cbae07c43fc`
 
-This upstream update advances both CLI and Web from 3.25.1 to 3.28.0. It retains
-the previous release's read-only-SIF-safe Web helper, supervised foreground
-service, and personal/site dataset preparation and read-only reuse interfaces.
-Nginx runtime writes remain in unique `/tmp/nextclade-web.*` directories.
-
-The 3.26–3.28 upstream series refreshes the tree viewer to Auspice 3.1,
-improves narrow-screen layouts, adds metadata/tree exports and clade-color
-controls, and fixes output, input, TLS and dataset-extraction error handling.
-Upstream now honors a dataset's alignment preset and reports additional
-alignment warnings; results can therefore differ from 3.25.1 with the same
-inputs. Both surfaces retain the official upstream analysis code.
-This package neither changes the upstream algorithms nor disables TLS checks.
-
-Version 3.25.0 introduced the optional `--penalty-gap-enter-cds` alignment parameter
-(default 0), warnings for loss of an unambiguous ATG start codon, collapsible
-Web tree/export sidebars, and an Auspice JSON download on the tree page.
-Choose a nonzero alignment penalty deliberately; this app does not change the
-upstream default. The start-codon warnings also appear in JSON/NDJSON/CSV/TSV
-and in the Web sequence-name tooltip. Ambiguous codons are not called lost.
-Mutation patterns introduced in 3.24 remain available; they require
-`mutationPatterns` in `pathogen.json` and a reference tree.
-See the [official release notes](https://github.com/nextstrain/nextclade/releases/tag/3.28.0).
+The [official 3.29.0 release](https://github.com/nextstrain/nextclade/releases/tag/3.29.0) updates Nextclade Web. On the tree page, **Branch Length** can show divergence, nucleotide mutation counts, or amino-acid mutation counts for a CDS with mutations. Private mutations count; missing bases and deletions do not. The upstream Auspice 3.2 viewer also corrects spacing in exported figures. On the start page, Reset can clear a manually selected dataset or a suggestion. Menus and help popups adapt to narrow screens. Both CLI and Web come from the same upstream commit; the package does not patch the analysis algorithms.
 
 ## Installation
 
@@ -45,7 +24,7 @@ After this release is published and present in the refreshed local Hub index:
 
 ```sh
 taf update
-taf install nextclade 3.28.0-r1
+taf install nextclade 3.29.0-r1
 ```
 
 Unpublished checkout testing uses the generated target wrapper described below;
@@ -62,7 +41,7 @@ the presence of a local candidate image does not mean this release is published.
 - `nextclade-smoke`: packaging and runtime test helper
 
 The Web assets came from upstream workflow run
-[`40728181151`](https://github.com/nextstrain/nextclade/actions/runs/40728181151)
+[`41840743263`](https://github.com/nextstrain/nextclade/actions/runs/41840743263)
 for the pinned commit. Packaging rewrites official-site asset URLs to the local
 service, disables Plausible analytics, and removes source maps. It does not
 replace the upstream analysis code or visible UI.
@@ -143,7 +122,7 @@ under:
 
 ```text
 ${XDG_DATA_HOME:-$HOME/.local/share}/taffish/datasets/nextclade/
-  3.28.0/members/<dataset-id>/<dataset-tag>/
+  3.29.0/members/<dataset-id>/<dataset-tag>/
 ```
 
 Every install first verifies the entire existing resource root under its lock,
@@ -210,8 +189,8 @@ preserve-and-inspect recovery boundary applies; this helper is not a durable
 database journal. It does not promise atomicity against arbitrary disk failure
 or uninterrupted readers during a multi-file root-index update.
 
-The standard personal root, `/usr/local/share/taffish/datasets/nextclade/3.28.0`,
-and `/opt/taffish/datasets/nextclade/3.28.0` are discovered in that order and
+The standard personal root, `/usr/local/share/taffish/datasets/nextclade/3.29.0`,
+and `/opt/taffish/datasets/nextclade/3.29.0` are discovered in that order and
 mounted read-only at `/opt/taffish/datasets/nextclade`. Set
 `TAFFISH_NEXTCLADE_DATASET_PATH` to select another complete version root, or
 `TAFFISH_NEXTCLADE_DATASET_AUTO_MOUNT=0` to disable discovery. The explicit
@@ -231,8 +210,10 @@ The helper checks membership in `versions`, passes your exact tag to the
 upstream downloader, and verifies the downloaded `pathogen.json` tag. It does
 not silently substitute the catalog's `version` (latest) field.
 
-Prepared roots are app-version scoped. A 3.25.1 prepared root is not silently
-relabelled as 3.28.0: keep it for the older wrapper, or prepare the same exact
+Prepared members must contain a readable, nonempty reference named in `pathogen.json` (`files.reference`), plus each declared `files.treeJson` or `files.genomeAnnotation`. Safe relative subdirectories and custom reference filenames are supported. A missing declared analysis input is rejected before install or reuse; optional README/examples are not prerequisites for running the CLI. Preserve an invalid library and repair from a trusted source, rather than editing its version or integrity markers. This check is not scientific validation of file contents.
+
+Prepared roots are app-version scoped. A 3.28.0 prepared root is not silently
+relabelled as 3.29.0: keep it for the older wrapper, or prepare the same exact
 upstream ID/tag into the new version root. Explicit upstream `--input-dataset`
 remains available for independently preserved ordinary dataset directories.
 
@@ -242,15 +223,15 @@ disable discovery and preserve the same preflight explicitly:
 
 ```sh
 TAFFISH_NEXTCLADE_DATASET_AUTO_MOUNT=0 \
-TAFFISH_DOCKER_RUN_ARGS="-v /host/root/3.28.0:/opt/taffish/datasets/nextclade:ro -e TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
+TAFFISH_DOCKER_RUN_ARGS="-v /host/root/3.29.0:/opt/taffish/datasets/nextclade:ro -e TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
 TAFFISH_CONTAINER_BACKEND=docker taf-nextclade nextclade-datasets verify
 
 TAFFISH_NEXTCLADE_DATASET_AUTO_MOUNT=0 \
-TAFFISH_PODMAN_RUN_ARGS="-v /host/root/3.28.0:/opt/taffish/datasets/nextclade:ro -e TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
+TAFFISH_PODMAN_RUN_ARGS="-v /host/root/3.29.0:/opt/taffish/datasets/nextclade:ro -e TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
 TAFFISH_CONTAINER_BACKEND=podman taf-nextclade nextclade-datasets verify
 
 TAFFISH_NEXTCLADE_DATASET_AUTO_MOUNT=0 \
-TAFFISH_APPTAINER_RUN_ARGS="--bind /host/root/3.28.0:/opt/taffish/datasets/nextclade:ro --env TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
+TAFFISH_APPTAINER_RUN_ARGS="--bind /host/root/3.29.0:/opt/taffish/datasets/nextclade:ro --env TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
 TAFFISH_CONTAINER_BACKEND=apptainer taf-nextclade nextclade-datasets verify
 ```
 
@@ -295,13 +276,7 @@ Important resource limits:
 | Prepared dataset reuse | automatic read-only bind | automatic read-only bind | automatic read-only bind | Complete personal/site/override version root only. |
 | Web service | loopback `-p` mapping | loopback `-p` mapping | shared host network, no `-p` | Foreground helper; no authentication/TLS; keep loopback-only and choose an unused site-allowed port. |
 
-The required validation axes are native amd64 Linux Docker, rootless Podman,
-and Apptainer on xjp, plus native arm64 Docker and Podman, with direct smoke
-and generated-wrapper tests. See release.md for the completed current receipts;
-older receipts do not establish this candidate's readiness. There is no claim
-of an all-platform/backend Cartesian product. Podman
-requires a working host-side init binary for `--init`. See release.md for the
-actual evidence of this candidate, not the previous release's receipts.
+The release notes record the checks for this exact version. Rootless Podman needs a working host-side init binary for `--init`.
 
 ## Browser Interface
 
@@ -402,7 +377,7 @@ local testing:
 taf build
 TAFFISH_DOCKER_RUN_ARGS="-p 127.0.0.1:8765:8000" \
   TAFFISH_CONTAINER_BACKEND=docker \
-  target/taf-nextclade-v3.28.0-r1 \
+  target/taf-nextclade-v3.29.0-r1 \
   nextclade-web --port 8000 --host-port 8765
 ```
 
@@ -435,7 +410,7 @@ upstream contracts tied to both the pinned program and selected dataset.
 | `/tmp/nextclade-web.*` | Web helper/Nginx | one service | unique directory; removed on normal, signal, startup, or critical exit |
 | `TAFFISH_NEXTCLADE_WEB_LOG_FILE` / explicit `--log-file FILE` | Web helper/Nginx | caller-selected | persistent wrapper-bound output; parent must be writable |
 | `/tmp/nextclade-dataset-*` | dataset helper | one command | catalog/log scratch; removed by trap |
-| `/dataset-install/3.28.0` | dataset helper | persistent | only an actual explicit writable host bind |
+| `/dataset-install/3.29.0` | dataset helper | persistent | only an actual explicit writable host bind |
 | requested CLI outputs/workdir | Nextclade CLI | persistent | caller's wrapper-bound working directory |
 | image root (`/opt`, `/usr`, `/var/lib/nginx`) | nobody at runtime | immutable | no runtime chmod/chown or write dependency |
 
@@ -444,7 +419,7 @@ Network is required for `dataset list|get`, helper network installation,
 preserved local input and dataset is offline-safe. The manifest smoke does not
 perform implicit network access.
 
-Upstream maintains paired CLI tags (`3.28.0`) and Web tags (`web-3.28.0`) for
+Upstream maintains paired CLI tags (`3.29.0`) and Web tags (`web-3.29.0`) for
 the same stable commit. The watch rule intentionally filters `web-*` and strips
 that prefix before version comparison, preventing unrelated mixed-tag lines from
 masking future stable updates while tracking the browser surface packaged here.
@@ -486,66 +461,13 @@ the dominant payloads.
   `meta.genome_annotations.nuc` genome map, even when there are no protein CDSs.
   A minimal tree accepted by the CLI need not contain all Web display metadata.
 
-## Testing Boundary
+## Validation and limits
 
-The manifest smoke checks all packaged commands, exact identity/provenance, a
-real explicit-reference analysis, schema generation, an offline exact-member
-install, transaction rollback, traversal/integrity corruption rejection, Web
-readiness, startup/ready signals, nonzero and zero-status critical-process
-supervision, cleanup, and invalid arguments. Every manifest command must also
-run in a fresh offline container with a read-only image root and only its
-documented `/tmp` and workdir writes. Docker/Podman resource binds and a real
-read-only SIF must be tested separately through generated wrappers.
-
-The manifest retains synthetic CDS-boundary and start-codon regressions,
-including default-versus-explicit penalty, JSON/NDJSON/TSV, and ambiguous codons.
-It retains the four-substitution mutation-pattern/no-tree regression and adds
-an offline catalog-parser unit for fixed older tags and missing-tag rejection.
-All declared exist entries and independent smoke commands must be rerun against
-this exact candidate; historical 3.25.1-r1 PASS does not qualify this update.
-New packaging regressions cover closed-output cleanup, cleanup failure, free
-space and upstream JSON/error-output contracts. Current receipts, image
-identities and remaining boundaries are recorded in release.md.
-
-Browser qualification uses synthetic local inputs, real pointer interaction,
-and a nonempty downloaded result. This is a direct browser app, not a noVNC
-desktop: window-manager, desktop geometry and noVNC chrome checks are N/A.
-JSON, SVG and Newick exports and the current narrow-screen layout are checked;
-the upstream 3.26–3.28 series replaces the older crowded navigation and clipped
-tree layout. Exact current browser evidence is recorded with this release.
-
-Resource transaction tests use tiny synthetic members, including real-wrapper
-HTTP catalog/ZIP download from a private loopback server, installation,
-idempotence, rollback, recovery, and read-only reuse. A root-owned disposable
-test site additionally verifies one administrator install followed by ordinary
-user read-only reuse on all three Linux backends. This is not a production
-catalog download or a deployment into real system site directories. Standard-path
-priority is separately tested in a private prefix, not by modifying system paths.
-Full production dataset acquisition, selected-member terms, site permissions and scientific suitability
-remain user/site responsibilities. The helper's network retry path does not
-claim byte-range resume; preserved exact members can be reused offline.
-Signal regressions additionally inject INT/TERM immediately before and after
-lock acquisition, and at backup, staging, promotion and root-index boundaries,
-including repeated signals during rollback and a recovery-rename failure.
-Both existing roots and fresh roots are covered; a competing caller must not
-remove another writer's lock. Invalid versions, inventories, content, missing
-or dangling markers, unindexed members, orphan files and linked member parents
-must fail through verification, discovery and normal/forced installation.
-Tests check preservation, trusted-copy recovery, successful retry, and
-SHA256/mtime/ownership/mode-preserving idempotence through real wrappers and
-actual writable host binds. No scientific code is patched.
-Cleanup ownership regressions also preserve colliding legacy staging, backup
-and control-metadata paths, external sentinels behind live or dangling links,
-and locks replaced by a symlink or another directory. Rejected roots remain
-untouched while recovery and idempotence are tested in a fresh root.
-
-These engineering gates do not replace biological validation on production
-sequences with an appropriate fixed pathogen dataset.
+The release notes identify the tested native platforms, container backends and image sizes. Engineering tests use synthetic sequences to check offline CLI outputs, exact-version resource installation, recovery, read-only site reuse, and the Web service and its downloads. No production dataset is bundled or certified; a mounted CLI dataset is not automatically available to the browser.
 
 ## License and Citation
 
-TAFFISH packaging is Apache-2.0. Nextclade software and packaged Web assets are
-MIT licensed. Dataset licensing is separate and not declared uniformly by the
+TAFFISH packaging is Apache-2.0. Upstream Nextclade is MIT licensed; third-party components in the official Web bundle retain their own terms. Dataset licensing is separate and not declared uniformly by the
 upstream catalog.
 
 Cite: Aksamentov I, Roemer C, Hodcroft EB, Neher RA. Nextclade: clade

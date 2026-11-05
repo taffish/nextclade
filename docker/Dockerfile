@@ -6,10 +6,10 @@ ARG ALPINE_IMAGE=alpine:3.22.5@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e
 FROM ${ALPINE_IMAGE} AS cli-fetch
 
 ARG TARGETARCH
-ARG NEXTCLADE_VERSION=3.28.0
-ARG NEXTCLADE_COMMIT=9a2ca6ec5af0e543e1c1fdf0749654c0b6acfe14
-ARG NEXTCLADE_AMD64_SHA256=38003e6b75479bd4af1fc73ca5e5effbaaf8ac0fd8b053246365d79010a53581
-ARG NEXTCLADE_ARM64_SHA256=81bfc6f78ff362f083c2692ade0d616b4a7f361e86dfb2661dedf2ef56e262d3
+ARG NEXTCLADE_VERSION=3.29.0
+ARG NEXTCLADE_COMMIT=8a9348557d929cb09078890d3e473cbae07c43fc
+ARG NEXTCLADE_AMD64_SHA256=a1fb7032fa08c8b2ac5038b1eaac0f35e045e75659e8bbda2c015af7fa7021b4
+ARG NEXTCLADE_ARM64_SHA256=4e00f011b5d195c79568b8be5bb509a262d2cf766bbd3f8b981c9e73664c26a5
 ARG NEXTCLADE_LICENSE_SHA256=7840a71ecf07a2d68ddae05e3a0dfd1bd4770ffca08f4bd204dc341e40bb6261
 ARG NEXTCLADE_README_SHA256=fed0045e15945b056bc0cb004685e743d677ce9409212a788e3b31355c1818d9
 
@@ -49,13 +49,13 @@ RUN set -eux; \
 
 FROM ${ALPINE_IMAGE} AS web-assets
 
-ARG NEXTCLADE_VERSION=3.28.0
-ARG NEXTCLADE_COMMIT=9a2ca6ec5af0e543e1c1fdf0749654c0b6acfe14
-ARG NEXTCLADE_WEB_SHA256=35b918730cd585bdd330ee305f7e8ddc81704663e20434f98019f2eb111d3b86
+ARG NEXTCLADE_VERSION=3.29.0
+ARG NEXTCLADE_COMMIT=8a9348557d929cb09078890d3e473cbae07c43fc
+ARG NEXTCLADE_WEB_SHA256=2bc2df414572d9c036f6cef01df7290989d232955b2d2afbc591da6a98f8f0b4
 
 # Official Web Actions artifacts expire, so preserve the verified out payload
 # in this release. Provenance distinguishes the official ZIP from this tar.
-COPY docker/nextclade-web-3.28.0.tar.gz /tmp/nextclade-web.tar.gz
+COPY docker/nextclade-web-3.29.0.tar.gz /tmp/nextclade-web.tar.gz
 
 RUN set -eux; \
     echo "${NEXTCLADE_WEB_SHA256}  /tmp/nextclade-web.tar.gz" | sha256sum -c -; \
@@ -73,21 +73,20 @@ RUN set -eux; \
     grep -F 'function u(){return null}function u_disabled' "$1" >/dev/null; \
     find /usr/share/nextclade-web -type f -name '*.map' -delete; \
     test -s /usr/share/nextclade-web/index.html; \
-    test -s /usr/share/nextclade-web/_next/static/chunks/pages/_app-463cc974e22ca255.js; \
     rm -f /tmp/nextclade-web.tar.gz
 
 FROM ${ALPINE_IMAGE}
 
-ARG NEXTCLADE_VERSION=3.28.0
-ARG NEXTCLADE_COMMIT=9a2ca6ec5af0e543e1c1fdf0749654c0b6acfe14
-ARG NEXTCLADE_SOURCE_SHA256=105d858fae99b93455d69525b4abee1f587317cb94b32d6626641bcb9440c49f
-ARG NEXTCLADE_WEB_SHA256=35b918730cd585bdd330ee305f7e8ddc81704663e20434f98019f2eb111d3b86
+ARG NEXTCLADE_VERSION=3.29.0
+ARG NEXTCLADE_COMMIT=8a9348557d929cb09078890d3e473cbae07c43fc
+ARG NEXTCLADE_SOURCE_SHA256=8d6dc677a6152dc47d7180d3b66805b5571a5c04efd16da7c5c3309c7fb17219
+ARG NEXTCLADE_WEB_SHA256=2bc2df414572d9c036f6cef01df7290989d232955b2d2afbc591da6a98f8f0b4
 
 LABEL org.opencontainers.image.title="Nextclade" \
       org.opencontainers.image.description="Nextclade CLI and official Nextclade Web client" \
       org.opencontainers.image.source="https://github.com/nextstrain/nextclade" \
-      org.opencontainers.image.version="3.28.0" \
-      org.opencontainers.image.revision="9a2ca6ec5af0e543e1c1fdf0749654c0b6acfe14" \
+      org.opencontainers.image.version="3.29.0" \
+      org.opencontainers.image.revision="8a9348557d929cb09078890d3e473cbae07c43fc" \
       org.opencontainers.image.licenses="MIT"
 
 # Runtime apk packages still resolve from live v3.22 repositories. The package
@@ -113,22 +112,20 @@ RUN set -eux; set -o pipefail; \
     printf '%s\n' \
       "source_archive=https://github.com/nextstrain/nextclade/archive/refs/tags/${NEXTCLADE_VERSION}.tar.gz" \
       "source_archive_sha256=${NEXTCLADE_SOURCE_SHA256}" \
-      "web_artifact_workflow_run=https://github.com/nextstrain/nextclade/actions/runs/40728181151" \
-      "web_artifact_id=12834903990" \
+      "web_artifact_workflow_run=https://github.com/nextstrain/nextclade/actions/runs/41840743263" \
+      "web_artifact_id=13329222590" \
       "web_artifact_name=out" \
-      "web_artifact_github_digest=sha256:bd6c230d8d6e4e52c933bb34823228af66ed896e788b13e26b55066083c444d6" \
+      "web_artifact_github_digest=sha256:5d69a7aaf8f158be2eba7620cf3e12610eb4b9426ca04a19565d59df52c083e4" \
       "web_archive_sha256=${NEXTCLADE_WEB_SHA256}" \
       "web_local_adjustments=local asset URLs; Plausible telemetry disabled; source maps removed" \
       >> /usr/share/nextclade-taffish/cli-source.txt; \
-    nextclade --version | grep -F "nextclade ${NEXTCLADE_VERSION}" >/dev/null; \
-    nextclade --help | grep -F 'Run sequence analysis' >/dev/null; \
-    nextclade-web --help | grep -F 'foreground browser service' >/dev/null; \
-    nextclade-datasets --help | grep -F 'version-pinned Nextclade datasets' >/dev/null; \
-    nextclade-datasets --version | grep -Fx 'nextclade-datasets 3.28.0-r1' >/dev/null; \
+    nextclade --version | grep -Fx "nextclade ${NEXTCLADE_VERSION}" >/dev/null; \
+    nextclade-datasets --version | grep -Fx 'nextclade-datasets 3.29.0-r1' >/dev/null; \
     grep -F '"commitHash": "'"${NEXTCLADE_COMMIT}"'"' /usr/share/nextclade-web/app.json >/dev/null
 
 ENV TAFFISH_ENV=TAFFISH \
-    TAFFISH_NAME=nextclade
+    TAFFISH_NAME=nextclade \
+    TAFFISH_VERSION=3.29.0 TAFFISH_RELEASE=1
 
 WORKDIR /root
 

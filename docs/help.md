@@ -1,11 +1,10 @@
-nextclade 3.28.0-r1
+nextclade 3.29.0-r1
 Purpose:
-  Use the primary headless CLI for viral-genome analysis, or start the optional
-  official Web client as a foreground static browser service.
+  Analyze sequences using the CLI, or start the official browser interface.
+  For a prepared 3.28.0 root, re-import the exact member into a new 3.29.0 root.
 
 Usage:
   taf-nextclade -- --help
-  taf-nextclade nextclade run --help
   taf-nextclade nextclade dataset --help
 
 Common tasks:
@@ -25,12 +24,13 @@ Prepare one exact reusable dataset member:
   taf-nextclade nextclade-datasets path --name DATASET_ID --tag DATASET_TAG
 
   Select an exact ID/tag; --force never bypasses invalid roots or recovery files.
-  Use --dry-run first. Upstream size/checksum/license are not uniformly supplied:
+  Use --dry-run first. Missing declared reference, tree or annotation fails.
+  Upstream size/checksum/license are not uniformly supplied:
   leave enough space and review dataset terms before installation or sharing.
   Keep old locks/staging/backups for recovery (see README); never blindly delete.
   After INT/TERM, wait for exit and verify before retrying; retained lock: see README.
 Use a prepared dataset root:
-  root=/absolute/root/3.28.0
+  root=/absolute/root/3.29.0
   target=/opt/taffish/datasets/nextclade
   Read-only roots: use paths without whitespace, commas, colons or glob characters.
     TAFFISH_NEXTCLADE_DATASET_PATH="$root" TAFFISH_CONTAINER_BACKEND=BACKEND \
@@ -77,7 +77,7 @@ Immediate notes:
   For CLI paths with spaces, preserve literal quotes, e.g. '"input file.fasta"'.
   Latest/network-selected datasets can change. Record an exact tag and use
   --input-dataset for reproducible work.
-  CDS gap penalty is opt-in: add --penalty-gap-enter-cds 1 to nextclade run.
+  Tree page: use Branch Length to switch divergence or mutation counts.
 
 Key outputs:
   --output-all writes aligned FASTA, CSV/TSV, JSON, translations and tree files.
