@@ -9,14 +9,14 @@ Package identity:
 - name: `nextclade`
 - command: `taf-nextclade`
 - kind: `tool`
-- version: `3.29.0-r1`
+- version: `3.29.1-r1`
 - TAFFISH app license: Apache-2.0
 - upstream license: MIT
 - native platforms: `linux/amd64`, `linux/arm64`
-- upstream release: [3.29.0](https://github.com/nextstrain/nextclade/releases/tag/3.29.0)
-- upstream commit: `8a9348557d929cb09078890d3e473cbae07c43fc`
+- upstream release: [3.29.1](https://github.com/nextstrain/nextclade/releases/tag/3.29.1)
+- upstream commit: `f5c631390d4fb7097310dbe478683bc101c676dc`
 
-The [official 3.29.0 release](https://github.com/nextstrain/nextclade/releases/tag/3.29.0) updates Nextclade Web. On the tree page, **Branch Length** can show divergence, nucleotide mutation counts, or amino-acid mutation counts for a CDS with mutations. Private mutations count; missing bases and deletions do not. The upstream Auspice 3.2 viewer also corrects spacing in exported figures. On the start page, Reset can clear a manually selected dataset or a suggestion. Menus and help popups adapt to narrow screens. Both CLI and Web come from the same upstream commit; the package does not patch the analysis algorithms.
+The [official 3.29.1 release](https://github.com/nextstrain/nextclade/releases/tag/3.29.1) changes the default alignment behavior in both the CLI and Web. Both come from the same upstream commit; TAFFISH does not patch the analysis algorithms.
 
 ## Installation
 
@@ -24,7 +24,7 @@ After this release is published and present in the refreshed local Hub index:
 
 ```sh
 taf update
-taf install nextclade 3.29.0-r1
+taf install nextclade 3.29.1-r1
 ```
 
 Unpublished checkout testing uses the generated target wrapper described below;
@@ -41,7 +41,7 @@ the presence of a local candidate image does not mean this release is published.
 - `nextclade-smoke`: packaging and runtime test helper
 
 The Web assets came from upstream workflow run
-[`41840743263`](https://github.com/nextstrain/nextclade/actions/runs/41840743263)
+[`44062914984`](https://github.com/nextstrain/nextclade/actions/runs/44062914984)
 for the pinned commit. Packaging rewrites official-site asset URLs to the local
 service, disables Plausible analytics, and removes source maps. It does not
 replace the upstream analysis code or visible UI.
@@ -53,9 +53,9 @@ The Web client is an optional official browser interface served as static files,
 not a native desktop application; native-window and noVNC geometry checks are
 therefore N/A.
 
-The app does not bundle pathogen datasets, sequence data, a browser,
-authentication, or TLS. It does not freeze the changing dataset selected by a
-network-backed “latest” request.
+The app includes small packaging test fixtures, but no production datasets or
+user sequences. It does not include a browser, authentication, or TLS, and does
+not freeze the changing dataset selected by a network-backed “latest” request.
 
 ## CLI Usage and Command Mode
 
@@ -122,7 +122,7 @@ under:
 
 ```text
 ${XDG_DATA_HOME:-$HOME/.local/share}/taffish/datasets/nextclade/
-  3.29.0/members/<dataset-id>/<dataset-tag>/
+  3.29.1/members/<dataset-id>/<dataset-tag>/
 ```
 
 Every install first verifies the entire existing resource root under its lock,
@@ -189,8 +189,8 @@ preserve-and-inspect recovery boundary applies; this helper is not a durable
 database journal. It does not promise atomicity against arbitrary disk failure
 or uninterrupted readers during a multi-file root-index update.
 
-The standard personal root, `/usr/local/share/taffish/datasets/nextclade/3.29.0`,
-and `/opt/taffish/datasets/nextclade/3.29.0` are discovered in that order and
+The standard personal root, `/usr/local/share/taffish/datasets/nextclade/3.29.1`,
+and `/opt/taffish/datasets/nextclade/3.29.1` are discovered in that order and
 mounted read-only at `/opt/taffish/datasets/nextclade`. Set
 `TAFFISH_NEXTCLADE_DATASET_PATH` to select another complete version root, or
 `TAFFISH_NEXTCLADE_DATASET_AUTO_MOUNT=0` to disable discovery. The explicit
@@ -212,8 +212,8 @@ not silently substitute the catalog's `version` (latest) field.
 
 Prepared members must contain a readable, nonempty reference named in `pathogen.json` (`files.reference`), plus each declared `files.treeJson` or `files.genomeAnnotation`. Safe relative subdirectories and custom reference filenames are supported. A missing declared analysis input is rejected before install or reuse; optional README/examples are not prerequisites for running the CLI. Preserve an invalid library and repair from a trusted source, rather than editing its version or integrity markers. This check is not scientific validation of file contents.
 
-Prepared roots are app-version scoped. A 3.28.0 prepared root is not silently
-relabelled as 3.29.0: keep it for the older wrapper, or prepare the same exact
+Prepared roots are app-version scoped. A 3.29.0 prepared root is not silently
+relabelled as 3.29.1: keep it for the older wrapper, or prepare the same exact
 upstream ID/tag into the new version root. Explicit upstream `--input-dataset`
 remains available for independently preserved ordinary dataset directories.
 
@@ -223,15 +223,15 @@ disable discovery and preserve the same preflight explicitly:
 
 ```sh
 TAFFISH_NEXTCLADE_DATASET_AUTO_MOUNT=0 \
-TAFFISH_DOCKER_RUN_ARGS="-v /host/root/3.29.0:/opt/taffish/datasets/nextclade:ro -e TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
+TAFFISH_DOCKER_RUN_ARGS="-v /host/root/3.29.1:/opt/taffish/datasets/nextclade:ro -e TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
 TAFFISH_CONTAINER_BACKEND=docker taf-nextclade nextclade-datasets verify
 
 TAFFISH_NEXTCLADE_DATASET_AUTO_MOUNT=0 \
-TAFFISH_PODMAN_RUN_ARGS="-v /host/root/3.29.0:/opt/taffish/datasets/nextclade:ro -e TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
+TAFFISH_PODMAN_RUN_ARGS="-v /host/root/3.29.1:/opt/taffish/datasets/nextclade:ro -e TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
 TAFFISH_CONTAINER_BACKEND=podman taf-nextclade nextclade-datasets verify
 
 TAFFISH_NEXTCLADE_DATASET_AUTO_MOUNT=0 \
-TAFFISH_APPTAINER_RUN_ARGS="--bind /host/root/3.29.0:/opt/taffish/datasets/nextclade:ro --env TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
+TAFFISH_APPTAINER_RUN_ARGS="--bind /host/root/3.29.1:/opt/taffish/datasets/nextclade:ro --env TAFFISH_NEXTCLADE_DATASET_MOUNTED=1" \
 TAFFISH_CONTAINER_BACKEND=apptainer taf-nextclade nextclade-datasets verify
 ```
 
@@ -271,7 +271,7 @@ Important resource limits:
 
 | Capability | Docker | Podman | Apptainer | Boundary |
 | --- | --- | --- | --- | --- |
-| CLI and exact offline smoke | supported | supported | supported, read-only SIF | Current-candidate validation status is recorded in release.md. |
+| CLI and offline checks | OCI image | OCI image | read-only SIF | These are the intended runtime interfaces, not test results for this candidate. |
 | Prepared dataset install | automatic read-write bind from `TAFFISH_NEXTCLADE_DATASET_INSTALL_ROOT` | same | same | Host directory must already exist and be writable; helper confirms an actual bind for `/dataset-install`. |
 | Prepared dataset reuse | automatic read-only bind | automatic read-only bind | automatic read-only bind | Complete personal/site/override version root only. |
 | Web service | loopback `-p` mapping | loopback `-p` mapping | shared host network, no `-p` | Foreground helper; no authentication/TLS; keep loopback-only and choose an unused site-allowed port. |
@@ -336,8 +336,12 @@ Then open `http://127.0.0.1:8765/` locally. Stop the service in its original
 terminal with Ctrl-C, and stop the SSH tunnel separately when finished.
 
 The Web client normally contacts the official data server for discovery and
-download, while computation occurs in the browser. Offline Web use requires
-uploading sequence input and a previously preserved dataset through the UI;
+download, while computation occurs in the browser. Bundled Web assets alone do
+not make dataset discovery offline. For disconnected use, preserve the selected
+dataset and catalog and use upstream Web URL parameters, such as
+`dataset-server` pointing to a user-managed loopback HTTP server, together with
+an exact `dataset-name` and `dataset-tag`. The image does not start that separate
+dataset server. This local-catalog path was tested with a synthetic fixture;
 the CLI read-only mount is not automatically injected into browser state.
 
 For a persistent HTTP log, set `TAFFISH_NEXTCLADE_WEB_LOG_FILE` before any of
@@ -365,10 +369,9 @@ Bash to the host would not supply this container dependency.
 ### Local source-checkout service testing
 
 Installed users should use the `taf-nextclade` commands above. In a source
-checkout, use the generated wrapper for long-running services. The previous
-3.23.0-r2 audit observed buffered startup output and incomplete interrupt
-cleanup with TAFFISH 0.11.0 `taf run`; this update does not re-qualify that core
-entry path. Its service evidence is for generated wrappers, not `taf run`.
+checkout, use the generated wrapper for long-running services. TAFFISH 0.11.0
+`taf run` could buffer startup output and leave a service running after an
+interrupt. Do not assume the two entry points handle signals identically.
 
 Build the generated wrapper and run that wrapper directly for unpublished
 local testing:
@@ -377,20 +380,13 @@ local testing:
 taf build
 TAFFISH_DOCKER_RUN_ARGS="-p 127.0.0.1:8765:8000" \
   TAFFISH_CONTAINER_BACKEND=docker \
-  target/taf-nextclade-v3.29.0-r1 \
+  target/taf-nextclade-v3.29.1-r1 \
   nextclade-web --port 8000 --host-port 8765
 ```
 
-Final generated wrappers passed terminal Ctrl-C during readiness and after
-ready (130), and TERM (143), with stopping confirmation, closed ports and no
-owned service residue. Docker/Podman TERM targeted the actually attached
-runtime client; Apptainer TERM targeted the explicitly owned terminal-session
-process group. In every case the outer wrapper was awaited and returned 143.
-PID-only TERM to the generic wrapper shell or Apptainer runtime parent is not
-a supported service-manager contract under current TAFFISH. Cleanup ignores
-additional INT/TERM/HUP while the first stop is already being completed, so a
-second signal cannot interrupt the bounded cleanup. These are foreground
-terminal-session guarantees, not a daemon deployment interface.
+Use Ctrl-C in the attached foreground terminal to stop the service. Wait for
+the wrapper to exit before reusing its port. Sending TERM only to the outer
+shell or the Apptainer parent is not a supported service-manager interface.
 
 ## Inputs and Outputs
 
@@ -410,7 +406,7 @@ upstream contracts tied to both the pinned program and selected dataset.
 | `/tmp/nextclade-web.*` | Web helper/Nginx | one service | unique directory; removed on normal, signal, startup, or critical exit |
 | `TAFFISH_NEXTCLADE_WEB_LOG_FILE` / explicit `--log-file FILE` | Web helper/Nginx | caller-selected | persistent wrapper-bound output; parent must be writable |
 | `/tmp/nextclade-dataset-*` | dataset helper | one command | catalog/log scratch; removed by trap |
-| `/dataset-install/3.29.0` | dataset helper | persistent | only an actual explicit writable host bind |
+| `/dataset-install/3.29.1` | dataset helper | persistent | only an actual explicit writable host bind |
 | requested CLI outputs/workdir | Nextclade CLI | persistent | caller's wrapper-bound working directory |
 | image root (`/opt`, `/usr`, `/var/lib/nginx`) | nobody at runtime | immutable | no runtime chmod/chown or write dependency |
 
@@ -419,14 +415,14 @@ Network is required for `dataset list|get`, helper network installation,
 preserved local input and dataset is offline-safe. The manifest smoke does not
 perform implicit network access.
 
-Upstream maintains paired CLI tags (`3.29.0`) and Web tags (`web-3.29.0`) for
+Upstream maintains paired CLI tags (`3.29.1`) and Web tags (`web-3.29.1`) for
 the same stable commit. The watch rule intentionally filters `web-*` and strips
 that prefix before version comparison, preventing unrelated mixed-tag lines from
 masking future stable updates while tracking the browser surface packaged here.
 
 ## Packaging, Provenance, and Size
 
-The final image uses a digest-pinned Alpine base and upstream native musl
+The Dockerfile uses a digest-pinned Alpine base and upstream native musl
 binaries. A thin packaged `nextclade` launcher performs full verification before
 any automatically mounted dataset is consumed, including TAFFISH automatic
 command mode, while preserving stdout for machine-readable upstream commands.
@@ -463,7 +459,20 @@ the dominant payloads.
 
 ## Validation and limits
 
-The release notes identify the tested native platforms, container backends and image sizes. Engineering tests use synthetic sequences to check offline CLI outputs, exact-version resource installation, recovery, read-only site reuse, and the Web service and its downloads. No production dataset is bundled or certified; a mounted CLI dataset is not automatically available to the browser.
+Current-candidate validation covers native arm64 Docker/Podman and native amd64
+Docker/Podman/Apptainer on xjp, all 19 manifest smoke groups, non-root read-only
+execution, and generated-wrapper resource installation, interruption, recovery,
+idempotence and read-only sharing. The official Web client was exercised with
+synthetic inputs through the generated wrapper, including filtering, tree layout
+and branch-length controls, SVG/JSON/TSV downloads, and a 480-pixel viewport.
+Wide result tables retain their upstream horizontally scrollable layout.
+
+These are software-packaging tests, not scientific acceptance of any production
+dataset. Full production catalog coverage and administrator installation into
+actual shared system directories were not validated. No production dataset is
+bundled. A read-only mount for the CLI does not make that directory available to
+the browser. Local readiness is not evidence that the publishing Action or public
+registry/index has run; publication remains a maintainer action.
 
 ## License and Citation
 

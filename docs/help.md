@@ -1,7 +1,7 @@
-nextclade 3.29.0-r1
+nextclade 3.29.1-r1
 Purpose:
   Analyze sequences using the CLI, or start the official browser interface.
-  For a prepared 3.28.0 root, re-import the exact member into a new 3.29.0 root.
+  Datasets stay outside the image. Keep 3.29.0 roots intact; prepare a separate 3.29.1 root.
 
 Usage:
   taf-nextclade -- --help
@@ -30,7 +30,7 @@ Prepare one exact reusable dataset member:
   Keep old locks/staging/backups for recovery (see README); never blindly delete.
   After INT/TERM, wait for exit and verify before retrying; retained lock: see README.
 Use a prepared dataset root:
-  root=/absolute/root/3.29.0
+  root=/absolute/root/3.29.1
   target=/opt/taffish/datasets/nextclade
   Read-only roots: use paths without whitespace, commas, colons or glob characters.
     TAFFISH_NEXTCLADE_DATASET_PATH="$root" TAFFISH_CONTAINER_BACKEND=BACKEND \
@@ -64,7 +64,7 @@ Browser service by backend:
   Wait for "Nextclade Web is ready", then open http://127.0.0.1:8765/.
   On a remote host use the printed SSH tunnel. Press Ctrl-C to stop. The helper
   has no authentication or TLS; keep it on loopback. Normal Web dataset discovery
-  needs network; offline use requires sequence files and a preserved dataset.
+  needs network. The browser does not automatically see datasets mounted for the CLI.
   With Apptainer, choose an unused host port allowed by site/firewall policy.
   The browser may expose filenames, sequence identifiers, and results; use a
   trusted browser session and do not publish the service beyond loopback.

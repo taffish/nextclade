@@ -2,7 +2,7 @@
 set -eu
 umask 022
 
-app_version=3.29.0
+app_version=3.29.1
 schema=taffish.nextclade.dataset-root.v1
 member_schema=taffish.nextclade.dataset-member.v1
 default_server=https://data.clades.nextstrain.org/v3
@@ -20,7 +20,7 @@ Usage:
   nextclade-datasets path --name ID --tag TAG [--resource-root ROOT]
 
 Install options:
-  --resource-root ROOT  Prepared version root; default /dataset-install/3.29.0
+  --resource-root ROOT  Prepared version root; default /dataset-install/3.29.1
   --server URL          Dataset server; default https://data.clades.nextstrain.org/v3
   --source-dir DIR      Install a user-supplied dataset directory without network
   --dry-run             Resolve and report; do not download or write
